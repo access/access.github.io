@@ -8,6 +8,7 @@
     "https://nb557.github.io/plugins/online_mod.js",
     "https://bylampa.github.io/account.js",
     "https://bylampa.github.io/addon.js",
+    "https://bylampa.github.io/auth.js",
     "https://bylampa.github.io/backmenu.js",
     "https://bylampa.github.io/bylampa_rating.js",
     "https://bylampa.github.io/bylampa_source.js",
@@ -25,6 +26,7 @@
     "https://bylampa.github.io/reload.js",
     "https://bylampa.github.io/source.js",
     "https://bylampa.github.io/start.js",
+    "https://bylampa.github.io/trailer_off.js"
 
   ],
   "disabled": []
