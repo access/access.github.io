@@ -1,6 +1,5 @@
 {
   "scripts": [
-    "https://bylampa.github.io/start.js",
     "scripts/00-core.js",
     "scripts/buttons.js",
     "scripts/rating.js",
