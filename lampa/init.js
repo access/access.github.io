@@ -1,31 +1,42 @@
 (function () {
   'use strict';
 
+  // ---- identity (avoid double-run)
+  var KEY = 'plugin_access_loader_ready';
+  if (window[KEY]) return;
+  window[KEY] = true;
+
+  // ---- config
   var BASE = 'https://access.github.io/lampa/';
   var MANIFEST = 'manifest.json';
-  var VERSION = String(new Date().getTime()); // cache-bust each run
   var SCRIPT_TIMEOUT = 20000;
 
+  // cache-bust per run (works with GH Pages cache)
+  var VERSION = String(Date.now());
+
+  // ---- utils
   function absUrl(p) {
     if (/^https?:\/\//i.test(p)) return p;
     return BASE + String(p).replace(/^\//, '');
   }
 
-  function withVersion(url) {
+  function withV(url) {
     return url + (url.indexOf('?') >= 0 ? '&' : '?') + 'v=' + encodeURIComponent(VERSION);
   }
 
-  function safeLog() {
-    try { console.log.apply(console, ['[LAMPA-INIT]'].concat([].slice.call(arguments))); } catch (e) {}
+  function log() {
+    try { console.log.apply(console, ['[ACCESS-LOADER]'].concat([].slice.call(arguments))); } catch (e) {}
   }
 
+  function safe(fn) { try { fn(); } catch (e) { log('err', e && e.message ? e.message : e); } }
+
   function loadScript(url, cb) {
-    try {
+    safe(function () {
       var head = document.head || document.getElementsByTagName('head')[0] || document.documentElement;
       var s = document.createElement('script');
       var done = false;
 
-      var timer = setTimeout(function () {
+      var t = setTimeout(function () {
         if (done) return;
         done = true;
         try { s.parentNode && s.parentNode.removeChild(s); } catch (e) {}
@@ -33,33 +44,31 @@
       }, SCRIPT_TIMEOUT);
 
       s.async = false;
-      s.src = withVersion(url);
+      s.src = withV(url);
 
       s.onload = function () {
         if (done) return;
         done = true;
-        clearTimeout(timer);
+        clearTimeout(t);
         cb(null);
       };
 
       s.onerror = function () {
         if (done) return;
         done = true;
-        clearTimeout(timer);
+        clearTimeout(t);
         try { s.parentNode && s.parentNode.removeChild(s); } catch (e) {}
         cb(new Error('load failed'));
       };
 
       head.appendChild(s);
-    } catch (e) {
-      cb(e);
-    }
+    });
   }
 
   function fetchJson(url, cb) {
-    try {
+    safe(function () {
       var xhr = new XMLHttpRequest();
-      xhr.open('GET', withVersion(url), true);
+      xhr.open('GET', withV(url), true);
       xhr.onreadystatechange = function () {
         if (xhr.readyState !== 4) return;
         if (xhr.status < 200 || xhr.status >= 300) return cb(new Error('http ' + xhr.status));
@@ -67,31 +76,39 @@
         catch (e) { cb(e); }
       };
       xhr.send(null);
-    } catch (e) {
-      cb(e);
-    }
+    });
   }
 
   function loadSeries(list, i) {
-    if (i >= list.length) return;
+    if (i >= list.length) return log('done', list.length);
     var u = absUrl(list[i]);
+
     loadScript(u, function (err) {
-      if (err) safeLog('skip', u, String(err && err.message ? err.message : err));
+      if (err) log('skip', u, String(err && err.message ? err.message : err));
       loadSeries(list, i + 1);
     });
   }
 
   function startLoader() {
+    // optional: allow "run once per app session"
+    safe(function () {
+      if (window.Lampa && Lampa.Storage) {
+        var onceKey = 'access_loader_once';
+        if (Lampa.Storage.get(onceKey)) return;
+        Lampa.Storage.set(onceKey, true);
+      }
+    });
+
     var manifestUrl = absUrl(MANIFEST);
-    safeLog('manifest', manifestUrl);
+    log('manifest', manifestUrl);
 
     fetchJson(manifestUrl, function (err, m) {
-      if (err) { safeLog('manifest err', String(err && err.message ? err.message : err)); return; }
+      if (err) return log('manifest err', String(err && err.message ? err.message : err));
 
       var scripts = (m && m.scripts && m.scripts.length) ? m.scripts.slice() : [];
-      if (!scripts.length) { safeLog('empty scripts[]'); return; }
+      if (!scripts.length) return log('manifest empty scripts[]');
 
-      // disabled[]
+      // disabled[] (string match exactly as in manifest)
       var disabled = {};
       if (m && m.disabled && m.disabled.length) {
         for (var d = 0; d < m.disabled.length; d++) disabled[m.disabled[d]] = 1;
@@ -105,41 +122,35 @@
         filtered.push(p);
       }
 
-      if (!filtered.length) { safeLog('all disabled'); return; }
-
-      safeLog('scripts', filtered.length);
+      log('scripts', filtered.length);
       loadSeries(filtered, 0);
     });
   }
 
-  // === VALIDATOR-SAFE BOOT ===
-  // Никаких сетевых действий до готовности Lampa UI.
-  function hookWhenReady() {
-    try {
-      if (!window.Lampa || !Lampa.Listener || !Lampa.Listener.follow) return false;
-
-      var started = false;
-
-      Lampa.Listener.follow('full', function (e) {
-        try {
-          if (started) return;
-          if (e && e.type === 'complite') {
-            started = true;
-            startLoader();
-          }
-        } catch (x) {}
-      });
-
-      return true;
-    } catch (e) {
-      return false;
-    }
+  // ---- Lampa lifecycle entrypoint (canonical)
+  function onAppReady() {
+    // максимально “по-ламповски”: стартуем после app ready, а не “сразу”
+    startLoader();
   }
 
-  // пытаемся повеситься сразу, иначе — ретраи (без исключений)
-  (function boot(retries) {
-    if (hookWhenReady()) return;
-    if (retries <= 0) return;
-    setTimeout(function () { boot(retries - 1); }, 200);
-  })(50); // ~10s
+  function hookAppReady() {
+    // appready flag is used by many plugins; if not set, follow app:ready :contentReference[oaicite:2]{index=2}
+    if (window.appready) return onAppReady();
+
+    if (window.Lampa && Lampa.Listener && Lampa.Listener.follow) {
+      Lampa.Listener.follow('app', function (e) {
+        if (e && e.type === 'ready') onAppReady();
+      });
+      return;
+    }
+
+    // fallback: poll until Lampa appears (doesn't break validator)
+    (function boot(n) {
+      if (window.Lampa && Lampa.Listener && Lampa.Listener.follow) return hookAppReady();
+      if (n <= 0) return;
+      setTimeout(function () { boot(n - 1); }, 200);
+    })(50);
+  }
+
+  hookAppReady();
 })();
