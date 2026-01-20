@@ -6,7 +6,7 @@
   var MANIFEST = 'manifest.json';
 
   // cache-bust (поменяй при релизе)
-  var VERSION = '2026-01-20-1';
+  var VERSION = Date.now().toString();
 
   var SCRIPT_TIMEOUT = 20000;
   var LOG = true;
