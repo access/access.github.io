@@ -10,6 +10,10 @@
     "https://bylampa.github.io/backmenu.js",
     "https://bylampa.github.io/color_vote.js",
     "https://bylampa.github.io/cub_off.js",
+    "https://bylampa.github.io/jackett.js",
+    "https://bylampa.github.io/redirect.js",
+    "https://bylampa.github.io/reload.js",
+    "https://bylampa.github.io/trailer_off.js"
 
   ],
   "disabled": []
