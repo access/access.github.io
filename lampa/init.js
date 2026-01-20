@@ -1,20 +1,14 @@
 (function () {
   'use strict';
 
-  // ---- identity (avoid double-run)
-  var KEY = 'plugin_access_loader_ready';
+  var KEY = 'plugin_access_installer_ready';
   if (window[KEY]) return;
   window[KEY] = true;
 
-  // ---- config
   var BASE = 'https://access.github.io/lampa/';
   var MANIFEST = 'manifest.json';
-  var SCRIPT_TIMEOUT = 20000;
-
-  // cache-bust per run (works with GH Pages cache)
   var VERSION = String(Date.now());
 
-  // ---- utils
   function absUrl(p) {
     if (/^https?:\/\//i.test(p)) return p;
     return BASE + String(p).replace(/^\//, '');
@@ -25,45 +19,10 @@
   }
 
   function log() {
-    try { console.log.apply(console, ['[ACCESS-LOADER]'].concat([].slice.call(arguments))); } catch (e) {}
+    try { console.log.apply(console, ['[ACCESS-INSTALL]'].concat([].slice.call(arguments))); } catch (e) {}
   }
 
   function safe(fn) { try { fn(); } catch (e) { log('err', e && e.message ? e.message : e); } }
-
-  function loadScript(url, cb) {
-    safe(function () {
-      var head = document.head || document.getElementsByTagName('head')[0] || document.documentElement;
-      var s = document.createElement('script');
-      var done = false;
-
-      var t = setTimeout(function () {
-        if (done) return;
-        done = true;
-        try { s.parentNode && s.parentNode.removeChild(s); } catch (e) {}
-        cb(new Error('timeout'));
-      }, SCRIPT_TIMEOUT);
-
-      s.async = false;
-      s.src = withV(url);
-
-      s.onload = function () {
-        if (done) return;
-        done = true;
-        clearTimeout(t);
-        cb(null);
-      };
-
-      s.onerror = function () {
-        if (done) return;
-        done = true;
-        clearTimeout(t);
-        try { s.parentNode && s.parentNode.removeChild(s); } catch (e) {}
-        cb(new Error('load failed'));
-      };
-
-      head.appendChild(s);
-    });
-  }
 
   function fetchJson(url, cb) {
     safe(function () {
@@ -79,26 +38,54 @@
     });
   }
 
-  function loadSeries(list, i) {
-    if (i >= list.length) return log('done', list.length);
-    var u = absUrl(list[i]);
+  // --- Lampa-native installer (preferred)
+  function putScript(url) {
+    // Try common locations used across Lampa builds
+    if (window.Lampa && Lampa.Utils && typeof Lampa.Utils.putScript === 'function') {
+      return Lampa.Utils.putScript(url);
+    }
+    if (window.Lampa && typeof Lampa.putScript === 'function') {
+      return Lampa.putScript(url);
+    }
+    if (window.Lampa && Lampa.Plugin && typeof Lampa.Plugin.add === 'function') {
+      // Some builds have plugin registry; best-effort
+      return Lampa.Plugin.add(url);
+    }
+    return null;
+  }
 
-    loadScript(u, function (err) {
-      if (err) log('skip', u, String(err && err.message ? err.message : err));
-      loadSeries(list, i + 1);
+  // --- Fallback: just append <script> (install-like, but immediate load)
+  function appendScript(url) {
+    safe(function () {
+      var head = document.head || document.getElementsByTagName('head')[0] || document.documentElement;
+      var s = document.createElement('script');
+      s.async = true; // let Lampa handle order; this is fallback only
+      s.src = withV(url);
+      head.appendChild(s);
     });
   }
 
-  function startLoader() {
-    // optional: allow "run once per app session"
-    safe(function () {
-      if (window.Lampa && Lampa.Storage) {
-        var onceKey = 'access_loader_once';
-        if (Lampa.Storage.get(onceKey)) return;
-        Lampa.Storage.set(onceKey, true);
-      }
-    });
+  function installList(list) {
+    for (var i = 0; i < list.length; i++) {
+      var u = absUrl(list[i]);
+      // cache-bust each installed url
+      u = withV(u);
 
+      var ok = false;
+      safe(function () {
+        ok = !!putScript(u);
+      });
+
+      if (!ok) {
+        // If no native installer exists in this build, fallback
+        appendScript(u);
+      }
+
+      log('install', u, ok ? '(putScript)' : '(fallback)');
+    }
+  }
+
+  function start() {
     var manifestUrl = absUrl(MANIFEST);
     log('manifest', manifestUrl);
 
@@ -106,9 +93,8 @@
       if (err) return log('manifest err', String(err && err.message ? err.message : err));
 
       var scripts = (m && m.scripts && m.scripts.length) ? m.scripts.slice() : [];
-      if (!scripts.length) return log('manifest empty scripts[]');
+      if (!scripts.length) return log('empty scripts[]');
 
-      // disabled[] (string match exactly as in manifest)
       var disabled = {};
       if (m && m.disabled && m.disabled.length) {
         for (var d = 0; d < m.disabled.length; d++) disabled[m.disabled[d]] = 1;
@@ -122,29 +108,25 @@
         filtered.push(p);
       }
 
-      log('scripts', filtered.length);
-      loadSeries(filtered, 0);
+      if (!filtered.length) return log('all disabled');
+
+      installList(filtered);
+      log('done', filtered.length);
     });
   }
 
-  // ---- Lampa lifecycle entrypoint (canonical)
-  function onAppReady() {
-    // максимально “по-ламповски”: стартуем после app ready, а не “сразу”
-    startLoader();
-  }
-
+  // --- canonical entry: app ready
   function hookAppReady() {
-    // appready flag is used by many plugins; if not set, follow app:ready :contentReference[oaicite:2]{index=2}
-    if (window.appready) return onAppReady();
+    if (window.appready) return start();
 
     if (window.Lampa && Lampa.Listener && Lampa.Listener.follow) {
       Lampa.Listener.follow('app', function (e) {
-        if (e && e.type === 'ready') onAppReady();
+        if (e && e.type === 'ready') start();
       });
       return;
     }
 
-    // fallback: poll until Lampa appears (doesn't break validator)
+    // fallback: poll (validator-safe)
     (function boot(n) {
       if (window.Lampa && Lampa.Listener && Lampa.Listener.follow) return hookAppReady();
       if (n <= 0) return;
