@@ -1,8 +1,6 @@
 {
   "scripts": [
-    "scripts/core-patch.js",
-    "scripts/msx-balancer.js",
-    "scripts/ui-tweaks.js"
+    "scripts/00-core.js"
   ],
   "disabled": []
 }

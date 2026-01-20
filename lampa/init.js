@@ -1,43 +1,28 @@
 (function () {
   'use strict';
 
-  // === CONFIG ===
-  // Твой GitHub Pages base URL (папка, где лежат lampa.js + manifest.json + scripts/)
-  var BASE = 'https://access.github.io/'; // <-- поменяй под себя, если надо
-
-  // Файл-манифест со списком скриптов (относительно BASE)
+  // Pages root: https://access.github.io/lampa/...
+  var BASE = 'https://access.github.io/lampa/';
   var MANIFEST = 'manifest.json';
 
-  // Фоллбек-бандл (если манифест не загрузился)
-  var FALLBACK_BUNDLE = 'bundle.min.js';
-
-  // Версия для cache-bust (лучше ставь число/дату при деплое)
+  // cache-bust (поменяй при релизе)
   var VERSION = '2026-01-20-1';
 
-  // Таймаут на загрузку каждого скрипта (мс)
   var SCRIPT_TIMEOUT = 20000;
-
-  // Печатать лог
   var LOG = true;
 
   function log() {
     if (!LOG) return;
-    try { console.log.apply(console, ['[LAMPA-LOADER]'].concat([].slice.call(arguments))); }
-    catch (_) {}
+    try { console.log.apply(console, ['[LAMPA-LOADER]'].concat([].slice.call(arguments))); } catch (_) {}
   }
 
   function withVersion(url) {
-    if (url.indexOf('?') >= 0) return url + '&v=' + encodeURIComponent(VERSION);
-    return url + '?v=' + encodeURIComponent(VERSION);
+    return url + (url.indexOf('?') >= 0 ? '&' : '?') + 'v=' + encodeURIComponent(VERSION);
   }
 
   function absUrl(pathOrUrl) {
-    // если уже https://...
     if (/^https?:\/\//i.test(pathOrUrl)) return pathOrUrl;
-    // нормализуем слеши
-    if (BASE.endsWith('/') && pathOrUrl.startsWith('/')) return BASE + pathOrUrl.slice(1);
-    if (!BASE.endsWith('/') && !pathOrUrl.startsWith('/')) return BASE + '/' + pathOrUrl;
-    return BASE + pathOrUrl;
+    return BASE + pathOrUrl.replace(/^\//, '');
   }
 
   function loadScript(url) {
@@ -52,7 +37,7 @@
         reject(new Error('Timeout: ' + url));
       }, SCRIPT_TIMEOUT);
 
-      s.async = false; // важно для порядка в старых окружениях
+      s.async = false;
       s.src = withVersion(url);
 
       s.onload = function () {
@@ -89,46 +74,27 @@
 
   function start() {
     var manifestUrl = absUrl(MANIFEST);
-    log('Base:', BASE);
     log('Manifest:', manifestUrl);
 
-    return fetchJson(manifestUrl)
-      .then(function (m) {
-        // ожидаем формат:
-        // { "scripts": ["scripts/a.js", "scripts/b.js"], "disabled": ["scripts/x.js"] }
-        var scripts = (m && m.scripts) ? m.scripts.slice() : [];
-        var disabled = (m && m.disabled) ? new Set(m.disabled) : new Set();
+    return fetchJson(manifestUrl).then(function (m) {
+      var scripts = (m && m.scripts) ? m.scripts.slice() : [];
+      var disabled = (m && m.disabled) ? new Set(m.disabled) : new Set();
 
-        scripts = scripts.filter(function (p) { return p && !disabled.has(p); });
+      scripts = scripts.filter(function (p) { return p && !disabled.has(p); });
+      if (!scripts.length) throw new Error('Manifest has empty scripts[]');
 
-        if (!scripts.length) {
-          throw new Error('Manifest has empty scripts[]');
-        }
-
-        log('Scripts:', scripts);
-
-        return series(scripts, function (p) {
-          var url = absUrl(p);
-          log('Load:', url);
-          return loadScript(url);
-        });
-      })
-      .catch(function (e) {
-        log('Manifest failed, fallback to bundle:', e && e.message ? e.message : e);
-        var fallbackUrl = absUrl(FALLBACK_BUNDLE);
-        return loadScript(fallbackUrl);
-      })
-      .then(function () {
-        log('Done');
-      })
-      .catch(function (e) {
-        log('FATAL:', e && e.message ? e.message : e);
-        // если хочешь — раскомментируй:
-        // alert('[LAMPA-LOADER] FATAL: ' + (e && e.message ? e.message : e));
+      return series(scripts, function (p) {
+        var url = absUrl(p);
+        log('Load:', url);
+        return loadScript(url);
       });
+    }).then(function () {
+      log('Done');
+    }).catch(function (e) {
+      log('FATAL:', e && e.message ? e.message : e);
+    });
   }
 
-  // Запуск как можно раньше, но после появления document.head
   if (document.readyState === 'loading') {
     document.addEventListener('DOMContentLoaded', start, { once: true });
   } else {
