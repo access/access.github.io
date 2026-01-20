@@ -1,8 +1,6 @@
 {
   "scripts": [
-    "scripts/00-core.js",
-    "scripts/buttons.js",
-    "scripts/rating.js",
+    "scripts/00-core.js"
   ],
   "disabled": []
 }
