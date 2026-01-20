@@ -23,5 +23,11 @@
     "https://bylampa.github.io/source.js",
     "https://bylampa.github.io/interface.js"
   ],
-  "disabled": []
+  "disabled": [],
+  "deprecated":[
+  "Фикс рейтингов...",
+  "https://amiv1.github.io/lampa/rating.js",
+  "Редактирование кнопок в карточке фильмов...",
+  "https://amikdn.github.io/buttons.js"
+  ]
 }
