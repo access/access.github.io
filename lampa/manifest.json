@@ -1,0 +1,8 @@
+{
+  "scripts": [
+    "scripts/core-patch.js",
+    "scripts/msx-balancer.js",
+    "scripts/ui-tweaks.js"
+  ],
+  "disabled": []
+}
