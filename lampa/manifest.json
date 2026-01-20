@@ -12,12 +12,7 @@
     "https://bylampa.github.io/cinema.js",
     "https://bylampa.github.io/color_vote.js",
     "https://bylampa.github.io/cub_off.js",
-    "https://bylampa.github.io/interface.js",
-    "https://bylampa.github.io/jackett.js",
-    "https://bylampa.github.io/orig_title.js",
-    "https://bylampa.github.io/redirect.js",
-    "https://bylampa.github.io/reload.js",
-    "https://bylampa.github.io/source.js"
+    "https://bylampa.github.io/interface.js"
   ],
   "disabled": []
 }
