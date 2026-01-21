@@ -1,0 +1,73 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <!-- ВСЕ относительные пути внутри Lampa будут идти на yumata.github.io updated -->
+  <base href="https://yumata.github.io/lampa/">
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Lampa wrapper</title>
+</head>
+<body style="background:#000;color:#fff;font:16px/1.4 sans-serif">
+  <div id="st">Loading…</div>
+
+<script>
+(async () => {
+  const st = (t) => (document.getElementById('st').textContent = t);
+
+  // 1) берём самый свежий app.min.js (raw с main)
+  // можно заменить на https://yumata.github.io/lampa/app.min.js если там есть
+  const SRC = 'https://raw.githubusercontent.com/yumata/lampa/refs/heads/main/app.min.js';
+
+  st('Fetching upstream app.min.js…');
+  const res = await fetch(SRC, { cache: 'no-store' });
+  if (!res.ok) throw new Error('Fetch failed: ' + res.status);
+  let js = await res.text();
+
+  // 2) патч: гарантированно обнуляем black_list перед фильтрацией
+  // СТАВИМ "якоря" по строкам логов/кускам кода, которые ты уже видел.
+  // Важно: делаем несколько попыток (fallback), чтобы переживать мелкие изменения.
+
+  let patched = false;
+
+  // (A) самый “точный”: вставить black_list.length=0 прямо перед forEach фильтрацией
+  // ищем место "black_list.forEach(function (b)" и вставляем перед ним
+  js = js.replace(
+    /black_list\.forEach\(function\s*\(b\)\s*\{/,
+    (m) => { patched = true; return "black_list.length=0;" + m; }
+  );
+
+  // (B) fallback: если (A) не нашло — вырезаем конкретные push'и по доменам (если они остались)
+  if (!patched) {
+    const before = js;
+    js = js
+      .replace(/black_list\.push\('lipp\.xyz'\);\s*/g, '')
+      .replace(/black_list\.push\('llpp\.xyz'\);\s*/g, '')
+      .replace(/black_list\.push\('scabrum\.github\.io'\);\s*/g, '')
+      .replace(/black_list\.push\('bylampa\.github\.io'\);\s*/g, '')
+      .replace(/black_list\.push\('tinyurl\.com'\);\s*/g, '')
+      .replace(/black_list\.push\('t\.me\/'\);\s*/g, '')
+      .replace(/black_list\.push\('4pda\.'\);\s*/g, '')
+      .replace(/black_list\.push\('teletype\.in'\);\s*/g, '')
+      .replace(/black_list\.push\('yotube\.com'\);\s*/g, '');
+    patched = (js !== before);
+  }
+
+  // 3) если патч не применился — стопаем запуск (это и есть “мониторинг”)
+  if (!patched) {
+    st('PATCH FAILED: upstream changed. Refusing to run.');
+    throw new Error('Patch failed (signature not found).');
+  }
+
+  st('Running patched Lampa…');
+
+  // 4) запуск через Blob
+  const blob = new Blob([js], { type: 'application/javascript' });
+  const url = URL.createObjectURL(blob);
+  const s = document.createElement('script');
+  s.src = url;
+  s.onload = () => URL.revokeObjectURL(url);
+  document.head.appendChild(s);
+})();
+</script>
+</body>
+</html>
