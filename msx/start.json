@@ -19,13 +19,29 @@
           "layout": "0,0,5,1",
           "image": "https://access.github.io/msx/msx-logo.png",
           "label": "BlackLampa",
-          "action": "link:https://access.github.io/msx/lampa-wrapper.html",
+          "action": "link:https://access.github.io/lampa",
           "selection": {
             "important": true,
             "action": "update:content:description",
             "data": {
               "text": [
                 "{txt:msx-white: BlackLampa} — запуск последней Lampa + патч blacklist."
+              ]
+            }
+          }
+        },
+        {
+          "type": "control",
+          "layout": "0,0,5,1",
+          "image": "https://access.github.io/msx/msx-logo.png",
+          "label": "BlackLampaWrapper",
+          "action": "link:https://access.github.io/msx/lampa-wrapper.html",
+          "selection": {
+            "important": true,
+            "action": "update:content:description",
+            "data": {
+              "text": [
+                "{txt:msx-white: BlackLampaWrapper} — LampaWrapper."
               ]
             }
           }
