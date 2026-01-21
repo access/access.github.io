@@ -2,71 +2,252 @@
 <html>
 <head>
   <meta charset="utf-8" />
-  <!-- ВСЕ относительные пути внутри Lampa будут идти на yumata.github.io updated -->
+  <!-- ВСЕ относительные пути внутри Lampa будут идти на yumata.github.io -->
   <base href="https://yumata.github.io/lampa/">
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Lampa wrapper</title>
+  <style>
+    body { margin:0; background:#000; color:#fff; font:16px/1.4 sans-serif; }
+    #st { padding:10px 12px; }
+    #log {
+      position:fixed; left:0; right:0; bottom:0;
+      max-height:60vh; overflow:auto;
+      background:rgba(0,0,0,0.85);
+      border-top:1px solid rgba(255,255,255,0.15);
+      padding:10px 12px;
+      font:13px/1.35 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+      white-space:pre-wrap;
+      word-break:break-word;
+    }
+    #topbar {
+      position:fixed; left:0; right:0; top:0;
+      background:rgba(0,0,0,0.65);
+      border-bottom:1px solid rgba(255,255,255,0.15);
+      padding:6px 12px;
+      display:flex; gap:10px; align-items:center;
+      font:13px/1.2 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    }
+    #topbar button {
+      background:#111; color:#fff; border:1px solid rgba(255,255,255,0.2);
+      padding:4px 8px; border-radius:6px;
+    }
+    #topbar span { opacity:0.9; }
+    .muted { opacity:0.75; }
+  </style>
 </head>
-<body style="background:#000;color:#fff;font:16px/1.4 sans-serif">
-  <div id="st">Loading…</div>
+
+<body>
+  <div id="topbar">
+    <button id="btnToggle">Hide log</button>
+    <button id="btnClear">Clear</button>
+    <span id="net" class="muted">net: ?</span>
+    <span id="mem" class="muted"></span>
+  </div>
+
+  <div id="st" style="padding-top:42px">Loading…</div>
+  <div id="log"></div>
 
 <script>
-(async () => {
-  const st = (t) => (document.getElementById('st').textContent = t);
+(() => {
+  const stEl  = document.getElementById('st');
+  const logEl = document.getElementById('log');
+  const netEl = document.getElementById('net');
+  const memEl = document.getElementById('mem');
+  const btnToggle = document.getElementById('btnToggle');
+  const btnClear  = document.getElementById('btnClear');
 
-  // 1) берём самый свежий app.min.js (raw с main)
-  // можно заменить на https://yumata.github.io/lampa/app.min.js если там есть
-  const SRC = 'https://raw.githubusercontent.com/yumata/lampa/refs/heads/main/app.min.js';
+  const MAX_LINES = 300;
+  const lines = [];
 
-  st('Fetching upstream app.min.js…');
-  const res = await fetch(SRC, { cache: 'no-store' });
-  if (!res.ok) throw new Error('Fetch failed: ' + res.status);
-  let js = await res.text();
-
-  // 2) патч: гарантированно обнуляем black_list перед фильтрацией
-  // СТАВИМ "якоря" по строкам логов/кускам кода, которые ты уже видел.
-  // Важно: делаем несколько попыток (fallback), чтобы переживать мелкие изменения.
-
-  let patched = false;
-
-  // (A) самый “точный”: вставить black_list.length=0 прямо перед forEach фильтрацией
-  // ищем место "black_list.forEach(function (b)" и вставляем перед ним
-  js = js.replace(
-    /black_list\.forEach\(function\s*\(b\)\s*\{/,
-    (m) => { patched = true; return "black_list.length=0;" + m; }
-  );
-
-  // (B) fallback: если (A) не нашло — вырезаем конкретные push'и по доменам (если они остались)
-  if (!patched) {
-    const before = js;
-    js = js
-      .replace(/black_list\.push\('lipp\.xyz'\);\s*/g, '')
-      .replace(/black_list\.push\('llpp\.xyz'\);\s*/g, '')
-      .replace(/black_list\.push\('scabrum\.github\.io'\);\s*/g, '')
-      .replace(/black_list\.push\('bylampa\.github\.io'\);\s*/g, '')
-      .replace(/black_list\.push\('tinyurl\.com'\);\s*/g, '')
-      .replace(/black_list\.push\('t\.me\/'\);\s*/g, '')
-      .replace(/black_list\.push\('4pda\.'\);\s*/g, '')
-      .replace(/black_list\.push\('teletype\.in'\);\s*/g, '')
-      .replace(/black_list\.push\('yotube\.com'\);\s*/g, '');
-    patched = (js !== before);
+  function ts() {
+    const d = new Date();
+    const p2 = (n) => String(n).padStart(2,'0');
+    return `${p2(d.getHours())}:${p2(d.getMinutes())}:${p2(d.getSeconds())}.${String(d.getMilliseconds()).padStart(3,'0')}`;
   }
 
-  // 3) если патч не применился — стопаем запуск (это и есть “мониторинг”)
-  if (!patched) {
-    st('PATCH FAILED: upstream changed. Refusing to run.');
-    throw new Error('Patch failed (signature not found).');
+  function render() {
+    logEl.textContent = lines.join('\n');
+    logEl.scrollTop = logEl.scrollHeight;
   }
 
-  st('Running patched Lampa…');
+  function addLine(level, msg) {
+    lines.push(`${ts()} [${level}] ${msg}`);
+    if (lines.length > MAX_LINES) lines.splice(0, lines.length - MAX_LINES);
+    render();
+  }
 
-  // 4) запуск через Blob
-  const blob = new Blob([js], { type: 'application/javascript' });
-  const url = URL.createObjectURL(blob);
-  const s = document.createElement('script');
-  s.src = url;
-  s.onload = () => URL.revokeObjectURL(url);
-  document.head.appendChild(s);
+  function st(msg) {
+    stEl.textContent = msg;
+    addLine('ST', msg);
+  }
+
+  // UI buttons
+  btnToggle.onclick = () => {
+    const hidden = logEl.style.display === 'none';
+    logEl.style.display = hidden ? 'block' : 'none';
+    btnToggle.textContent = hidden ? 'Hide log' : 'Show log';
+  };
+  btnClear.onclick = () => {
+    lines.length = 0;
+    render();
+    addLine('SYS', 'Log cleared');
+  };
+
+  // net info
+  function updateNet() {
+    try {
+      const on = navigator.onLine;
+      netEl.textContent = `net: ${on ? 'online' : 'offline'}`;
+    } catch { /* ignore */ }
+  }
+  window.addEventListener('online', updateNet);
+  window.addEventListener('offline', updateNet);
+  updateNet();
+
+  // memory (best-effort)
+  setInterval(() => {
+    try {
+      if (performance && performance.memory) {
+        const m = performance.memory;
+        const mb = (x) => (x / (1024*1024)).toFixed(0);
+        memEl.textContent = `mem: ${mb(m.usedJSHeapSize)}/${mb(m.totalJSHeapSize)}MB`;
+      }
+    } catch {}
+  }, 1500);
+
+  // Hook console to screen
+  const orig = {
+    log: console.log.bind(console),
+    warn: console.warn.bind(console),
+    error: console.error.bind(console),
+    info: console.info ? console.info.bind(console) : console.log.bind(console),
+    debug: console.debug ? console.debug.bind(console) : console.log.bind(console),
+  };
+
+  function fmtArgs(args) {
+    return args.map(a => {
+      if (typeof a === 'string') return a;
+      try { return JSON.stringify(a); } catch { return String(a); }
+    }).join(' ');
+  }
+
+  console.log  = (...a) => { addLine('LOG',  fmtArgs(a)); orig.log(...a); };
+  console.warn = (...a) => { addLine('WARN', fmtArgs(a)); orig.warn(...a); };
+  console.error= (...a) => { addLine('ERR',  fmtArgs(a)); orig.error(...a); };
+  console.info = (...a) => { addLine('INFO', fmtArgs(a)); orig.info(...a); };
+  console.debug= (...a) => { addLine('DBG',  fmtArgs(a)); orig.debug(...a); };
+
+  // Global error traps
+  window.addEventListener('error', (e) => {
+    addLine('ERR', `window.onerror: ${e.message || e.type} @ ${e.filename || ''}:${e.lineno || ''}:${e.colno || ''}`);
+    if (e.error && e.error.stack) addLine('ERR', `stack: ${String(e.error.stack).slice(0, 2000)}`);
+  });
+
+  window.addEventListener('unhandledrejection', (e) => {
+    const r = e.reason;
+    addLine('ERR', `unhandledrejection: ${r && r.message ? r.message : String(r)}`);
+    if (r && r.stack) addLine('ERR', `stack: ${String(r.stack).slice(0, 2000)}`);
+  });
+
+  // --- main
+  (async () => {
+    // IMPORTANT: у тебя сейчас refs/heads/main — это иногда капризит на некоторых клиентах.
+    // Надёжнее так:
+    const SRC = 'https://raw.githubusercontent.com/yumata/lampa/main/app.min.js';
+
+    st('Fetching upstream app.min.js…');
+    const t0 = performance.now();
+    const res = await fetch(SRC, { cache: 'no-store' });
+    addLine('NET', `GET ${SRC} -> ${res.status} ${res.statusText}`);
+    if (!res.ok) throw new Error('Fetch failed: ' + res.status);
+
+    let js = await res.text();
+    addLine('NET', `app.min.js size: ${js.length} bytes, dt=${(performance.now()-t0).toFixed(0)}ms`);
+
+    // Patch blacklist
+    let patched = false;
+
+    // (A) insert before forEach filter
+    js = js.replace(
+      /black_list\.forEach\(function\s*\(b\)\s*\{/,
+      (m) => { patched = true; return "black_list.length=0;" + m; }
+    );
+
+    // (B) fallback: remove pushes
+    if (!patched) {
+      const before = js;
+      js = js
+        .replace(/black_list\.push\('lipp\.xyz'\);\s*/g, '')
+        .replace(/black_list\.push\('llpp\.xyz'\);\s*/g, '')
+        .replace(/black_list\.push\('scabrum\.github\.io'\);\s*/g, '')
+        .replace(/black_list\.push\('bylampa\.github\.io'\);\s*/g, '')
+        .replace(/black_list\.push\('tinyurl\.com'\);\s*/g, '')
+        .replace(/black_list\.push\('t\.me\/'\);\s*/g, '')
+        .replace(/black_list\.push\('4pda\.'\);\s*/g, '')
+        .replace(/black_list\.push\('teletype\.in'\);\s*/g, '')
+        .replace(/black_list\.push\('yotube\.com'\);\s*/g, '');
+      patched = (js !== before);
+    }
+
+    if (!patched) {
+      st('PATCH FAILED: upstream changed. Refusing to run.');
+      throw new Error('Patch failed (signature not found).');
+    }
+
+    addLine('OK', 'Patch applied');
+
+    st('Running patched Lampa…');
+
+    // Inject through Blob
+    const blob = new Blob([js], { type: 'application/javascript' });
+    const url = URL.createObjectURL(blob);
+
+    const s = document.createElement('script');
+    s.src = url;
+
+    s.onload = () => {
+      addLine('OK', 'Blob script loaded');
+      // We can revoke after load
+      try { URL.revokeObjectURL(url); } catch {}
+    };
+
+    s.onerror = () => {
+      addLine('ERR', 'Blob script failed to load (script.onerror)');
+      try { URL.revokeObjectURL(url); } catch {}
+    };
+
+    document.head.appendChild(s);
+
+    // Watchdog: check if Lampa appeared
+    const startedAt = performance.now();
+    const TIMEOUT_MS = 20000;
+
+    const timer = setInterval(() => {
+      const dt = performance.now() - startedAt;
+
+      const hasLampa = typeof window.Lampa !== 'undefined';
+      if (hasLampa) {
+        addLine('OK', `window.Lampa detected after ${dt.toFixed(0)}ms`);
+        st('Lampa started (window.Lampa detected)');
+        clearInterval(timer);
+        return;
+      }
+
+      if (dt > TIMEOUT_MS) {
+        addLine('ERR', `Timeout: window.Lampa not detected after ${TIMEOUT_MS}ms`);
+        addLine('HINT', 'Если это ТВ/MSX: проверь доступ к raw.githubusercontent.com и CORS/HTTPS.');
+        st('Timeout: Lampa did not start (see log)');
+        clearInterval(timer);
+      } else {
+        // heartbeat
+        st(`Running patched Lampa… (${(dt/1000).toFixed(1)}s)`);
+      }
+    }, 700);
+
+  })().catch(err => {
+    console.error(err);
+    st('Fatal: ' + (err && err.message ? err.message : String(err)));
+  });
 })();
 </script>
 </body>
