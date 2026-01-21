@@ -3,7 +3,7 @@
   "headline": "Загрузчик приложений",
   "extension": "MSX portal",
   "version": "1.0.0",
-  "parameter": "content:{PREFIX}{domain}/msx/start.json",
+  "parameter": "content:https://access.github.io/msx/start.json",
   "action": "[settings:validate_links:0|home]",
   "pages": [
     {
