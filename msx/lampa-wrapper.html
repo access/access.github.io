@@ -1,334 +1,167 @@
 <!doctype html>
-<html>
+<html lang="ru">
 <head>
   <meta charset="utf-8" />
-  <!-- ВСЕ относительные пути внутри Lampa будут идти на yumata.github.io -->
-  <base href="https://yumata.github.io/lampa/">
-  <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>Lampa wrapper</title>
+  <meta name="viewport" content="width=device-width,height=device-height,initial-scale=1,maximum-scale=1,user-scalable=no" />
+  <title>Lampa Wrapper</title>
+
   <style>
-    body { margin:0; background:#000; color:#fff; font:16px/1.4 sans-serif; }
-    #st { padding:10px 12px; }
-    #log {
-      position:fixed; left:0; right:0; bottom:0;
-      max-height:60vh; overflow:auto;
-      background:rgba(0,0,0,0.85);
-      border-top:1px solid rgba(255,255,255,0.15);
-      padding:10px 12px;
-      font:13px/1.35 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
-      white-space:pre-wrap;
-      word-break:break-word;
+    html, body {
+      margin: 0; padding: 0;
+      width: 100%; height: 100%;
+      background: #000;
+      overflow: hidden;
     }
-    #topbar {
-      position:fixed; left:0; right:0; top:0;
-      background:rgba(0,0,0,0.65);
-      border-bottom:1px solid rgba(255,255,255,0.15);
-      padding:6px 12px;
-      display:flex; gap:10px; align-items:center;
-      font:13px/1.2 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+
+    /* Лог поверх, но НЕ трогаем пульт/клики */
+    #bootlog {
+      position: fixed;
+      left: 0; top: 0; right: 0;
+      max-height: 55vh;
+      overflow: hidden;
+      font: 18px/1.25 monospace;
+      color: #e8e8e8;
+      background: rgba(0,0,0,0.55);
+      padding: 10px 12px;
+      white-space: pre-wrap;
+      z-index: 2147483647;
+      pointer-events: none;
+      text-shadow: 0 1px 2px rgba(0,0,0,0.9);
     }
-    #topbar button {
-      background:#111; color:#fff; border:1px solid rgba(255,255,255,0.2);
-      padding:4px 8px; border-radius:6px;
-    }
-    #topbar span { opacity:0.9; }
-    .muted { opacity:0.75; }
+    #bootlog .dim { color: #b8b8b8; }
+    #bootlog .ok  { color: #b7ffb7; }
+    #bootlog .err { color: #ffb7b7; }
   </style>
+
+  <!-- Важно: Lampa должна думать, что база = yumata.github.io/lampa/ -->
+  <base href="https://yumata.github.io/lampa/">
 </head>
 
-<body>
-  <div id="topbar">
-    <button id="btnToggle">Hide log</button>
-    <button id="btnClear">Clear</button>
-    <span id="net" class="muted">net: ?</span>
-    <span id="mem" class="muted"></span>
-  </div>
+<body tabindex="0">
+  <div id="bootlog"></div>
 
-  <div id="st" style="padding-top:42px">Loading…</div>
-  <div id="log"></div>
+  <script>
+    (function () {
+      'use strict';
 
+      const BASE = 'https://yumata.github.io/lampa/';
+      const UPSTREAM_APP_MIN = 'https://raw.githubusercontent.com/yumata/lampa/main/app.min.js';
 
-<script>
-(function () {
-  'use strict';
+      const logEl = document.getElementById('bootlog');
+      const t0 = Date.now();
 
-  function safe(fn, fallback) {
-    return function () {
-      try { return fn && fn.apply(this, arguments); }
-      catch (e) { console.error(e); return fallback; }
-    };
-  }
-
-  // Some SmartTV browsers expose window.Navigator (native) – Lampa expects its own API on it.
-  var N = (typeof window.Navigator !== 'undefined' && window.Navigator) ? window.Navigator : (window.Navigator = {});
-
-  // Minimal state
-  N.__lampa = N.__lampa || { collection: null, focused: null, last: {} };
-
-  // follow() – safest is to forward to Lampa.Listener.follow when it appears, otherwise no-op
-  if (typeof N.follow !== 'function') {
-    N.follow = function () {
-      if (window.Lampa && Lampa.Listener && typeof Lampa.Listener.follow === 'function') {
-        return Lampa.Listener.follow.apply(Lampa.Listener, arguments);
-      }
-      // no-op until Lampa runtime appears
-      return false;
-    };
-  }
-
-  // setCollection(collection) – store and try to forward to controller if exists
-  if (typeof N.setCollection !== 'function') {
-    N.setCollection = function (collection) {
-      N.__lampa.collection = collection;
-      if (window.Lampa && Lampa.Controller && typeof Lampa.Controller.collectionSet === 'function') {
-        // NOTE: do NOT call back into Navigator.* from here; only store
-      }
-      return true;
-    };
-  }
-
-  // focus(item) – store focused; if Lampa has Controller/Selector, let it handle later
-  if (typeof N.focus !== 'function') {
-    N.focus = function (item) {
-      N.__lampa.focused = item;
-      return true;
-    };
-  }
-
-  // canmove/move/remove/multiAdd – make them safe no-ops (prevents crash)
-  if (typeof N.canmove !== 'function') N.canmove = function(){ return true; };
-  if (typeof N.move !== 'function')    N.move    = function(){ return true; };
-  if (typeof N.remove !== 'function')  N.remove  = function(){ return true; };
-  if (typeof N.multiAdd !== 'function')N.multiAdd= function(){ return true; };
-
-})();
-</script>
-
-<script>
-(() => {
-  const stEl  = document.getElementById('st');
-  const logEl = document.getElementById('log');
-  const netEl = document.getElementById('net');
-  const memEl = document.getElementById('mem');
-  const btnToggle = document.getElementById('btnToggle');
-  const btnClear  = document.getElementById('btnClear');
-
-  const MAX_LINES = 300;
-  const lines = [];
-
-  function ts() {
-    const d = new Date();
-    const p2 = (n) => String(n).padStart(2,'0');
-    return `${p2(d.getHours())}:${p2(d.getMinutes())}:${p2(d.getSeconds())}.${String(d.getMilliseconds()).padStart(3,'0')}`;
-  }
-
-  function render() {
-    logEl.textContent = lines.join('\n');
-    logEl.scrollTop = logEl.scrollHeight;
-  }
-
-  function addLine(level, msg) {
-    lines.push(`${ts()} [${level}] ${msg}`);
-    if (lines.length > MAX_LINES) lines.splice(0, lines.length - MAX_LINES);
-    render();
-  }
-
-  function st(msg) {
-    stEl.textContent = msg;
-    addLine('ST', msg);
-  }
-
-  // UI buttons
-  btnToggle.onclick = () => {
-    const hidden = logEl.style.display === 'none';
-    logEl.style.display = hidden ? 'block' : 'none';
-    btnToggle.textContent = hidden ? 'Hide log' : 'Show log';
-  };
-  btnClear.onclick = () => {
-    lines.length = 0;
-    render();
-    addLine('SYS', 'Log cleared');
-  };
-
-  // net info
-  function updateNet() {
-    try {
-      const on = navigator.onLine;
-      netEl.textContent = `net: ${on ? 'online' : 'offline'}`;
-    } catch { /* ignore */ }
-  }
-  window.addEventListener('online', updateNet);
-  window.addEventListener('offline', updateNet);
-  updateNet();
-
-  // memory (best-effort)
-  setInterval(() => {
-    try {
-      if (performance && performance.memory) {
-        const m = performance.memory;
-        const mb = (x) => (x / (1024*1024)).toFixed(0);
-        memEl.textContent = `mem: ${mb(m.usedJSHeapSize)}/${mb(m.totalJSHeapSize)}MB`;
-      }
-    } catch {}
-  }, 1500);
-
-  // Hook console to screen
-  const orig = {
-    log: console.log.bind(console),
-    warn: console.warn.bind(console),
-    error: console.error.bind(console),
-    info: console.info ? console.info.bind(console) : console.log.bind(console),
-    debug: console.debug ? console.debug.bind(console) : console.log.bind(console),
-  };
-
-  function fmtArgs(args) {
-    return args.map(a => {
-      if (typeof a === 'string') return a;
-      try { return JSON.stringify(a); } catch { return String(a); }
-    }).join(' ');
-  }
-
-  console.log  = (...a) => { addLine('LOG',  fmtArgs(a)); orig.log(...a); };
-  console.warn = (...a) => { addLine('WARN', fmtArgs(a)); orig.warn(...a); };
-  console.error= (...a) => { addLine('ERR',  fmtArgs(a)); orig.error(...a); };
-  console.info = (...a) => { addLine('INFO', fmtArgs(a)); orig.info(...a); };
-  console.debug= (...a) => { addLine('DBG',  fmtArgs(a)); orig.debug(...a); };
-
-  // Global error traps
-  window.addEventListener('error', (e) => {
-    addLine('ERR', `window.onerror: ${e.message || e.type} @ ${e.filename || ''}:${e.lineno || ''}:${e.colno || ''}`);
-    if (e.error && e.error.stack) addLine('ERR', `stack: ${String(e.error.stack).slice(0, 2000)}`);
-  });
-
-  window.addEventListener('unhandledrejection', (e) => {
-    const r = e.reason;
-    addLine('ERR', `unhandledrejection: ${r && r.message ? r.message : String(r)}`);
-    if (r && r.stack) addLine('ERR', `stack: ${String(r.stack).slice(0, 2000)}`);
-  });
-
-  // --- main
-  (async () => {
-
-    st('Loading jQuery…');
-
-    await new Promise((resolve, reject) => {
-      const jq = document.createElement('script');
-      jq.src = 'https://code.jquery.com/jquery-3.6.0.min.js';
-      jq.onload = () => {
-        addLine('OK', 'jQuery loaded, $=' + typeof window.$);
-        resolve();
-      };
-      jq.onerror = () => reject(new Error('Failed to load jQuery'));
-      document.head.appendChild(jq);
-    });
-
-    // IMPORTANT: у тебя сейчас refs/heads/main — это иногда капризит на некоторых клиентах.
-    // Надёжнее так:
-    const SRC = 'https://raw.githubusercontent.com/yumata/lampa/main/app.min.js';
-
-    st('Fetching upstream app.min.js…');
-    const t0 = performance.now();
-    const res = await fetch(SRC, { cache: 'no-store' });
-    addLine('NET', `GET ${SRC} -> ${res.status} ${res.statusText}`);
-    if (!res.ok) throw new Error('Fetch failed: ' + res.status);
-
-    let js = await res.text();
-    addLine('NET', `app.min.js size: ${js.length} bytes, dt=${(performance.now()-t0).toFixed(0)}ms`);
-
-    // Patch blacklist
-    let patched = false;
-
-    // (A) insert before forEach filter
-    js = js.replace(
-      /black_list\.forEach\(function\s*\(b\)\s*\{/,
-      (m) => { patched = true; return "black_list.length=0;" + m; }
-    );
-
-    // FIX: some builds call Navigator.setCollection(), but method may not exist in this bundle.
-    // Make it safe: if missing -> no-op.
-    //js = js.replace(/Navigator\.setCollection\s*\(/g, '(Navigator.setCollection||function(){return null;})( ');
-    //js = js.replace(/Navigator\.follow\s*\(/g, '(Navigator.follow||function(){return null;})( ');
-    //js = js.replace(/Navigator\.focus\s*\(/g, '(Navigator.focus||function(){return null;} )(');
-
-
-
-    // (B) fallback: remove pushes
-    if (!patched) {
-      const before = js;
-      js = js
-        .replace(/black_list\.push\('lipp\.xyz'\);\s*/g, '')
-        .replace(/black_list\.push\('llpp\.xyz'\);\s*/g, '')
-        .replace(/black_list\.push\('scabrum\.github\.io'\);\s*/g, '')
-        .replace(/black_list\.push\('bylampa\.github\.io'\);\s*/g, '')
-        .replace(/black_list\.push\('tinyurl\.com'\);\s*/g, '')
-        .replace(/black_list\.push\('t\.me\/'\);\s*/g, '')
-        .replace(/black_list\.push\('4pda\.'\);\s*/g, '')
-        .replace(/black_list\.push\('teletype\.in'\);\s*/g, '')
-        .replace(/black_list\.push\('yotube\.com'\);\s*/g, '');
-      patched = (js !== before);
-    }
-
-    if (!patched) {
-      st('PATCH FAILED: upstream changed. Refusing to run.');
-      throw new Error('Patch failed (signature not found).');
-    }
-
-    addLine('OK', 'Patch applied');
-
-    st('Running patched Lampa…');
-
-
-    // Inject through Blob
-    const blob = new Blob([js], { type: 'application/javascript' });
-    const url = URL.createObjectURL(blob);
-
-    const s = document.createElement('script');
-    s.src = url;
-
-    s.onload = () => {
-      addLine('OK', 'Blob script loaded');
-      // We can revoke after load
-      try { URL.revokeObjectURL(url); } catch {}
-    };
-
-    s.onerror = () => {
-      addLine('ERR', 'Blob script failed to load (script.onerror)');
-      try { URL.revokeObjectURL(url); } catch {}
-    };
-
-    document.head.appendChild(s);
-
-    // Watchdog: check if Lampa appeared
-    const startedAt = performance.now();
-    const TIMEOUT_MS = 20000;
-
-    const timer = setInterval(() => {
-      const dt = performance.now() - startedAt;
-
-      const hasLampa = typeof window.Lampa !== 'undefined';
-      if (hasLampa) {
-        addLine('OK', `window.Lampa detected after ${dt.toFixed(0)}ms`);
-        st('Lampa started (window.Lampa detected)');
-        clearInterval(timer);
-        return;
+      function ts() {
+        const ms = Date.now() - t0;
+        return (ms / 1000).toFixed(3).padStart(7, ' ');
       }
 
-      if (dt > TIMEOUT_MS) {
-        addLine('ERR', `Timeout: window.Lampa not detected after ${TIMEOUT_MS}ms`);
-        addLine('HINT', 'Если это ТВ/MSX: проверь доступ к raw.githubusercontent.com и CORS/HTTPS.');
-        st('Timeout: Lampa did not start (see log)');
-        clearInterval(timer);
-      } else {
-        // heartbeat
-        st(`Running patched Lampa… (${(dt/1000).toFixed(1)}s)`);
+      function add(kind, msg) {
+        const cls = kind === 'ERR' ? 'err' : (kind === 'OK' ? 'ok' : 'dim');
+        logEl.textContent += `${ts()} [${kind}] ${msg}\n`;
+        // ограничим чтобы не раздувалось
+        const lines = logEl.textContent.split('\n');
+        if (lines.length > 250) logEl.textContent = lines.slice(-250).join('\n');
       }
-    }, 700);
 
-  })().catch(err => {
-    console.error(err);
-    st('Fatal: ' + (err && err.message ? err.message : String(err)));
-  });
-})();
-</script>
+      window.addEventListener('error', (e) => {
+        add('ERR', `window.onerror: ${e.message || e.error}`);
+      });
+
+      window.addEventListener('unhandledrejection', (e) => {
+        add('ERR', `unhandledrejection: ${String(e.reason)}`);
+      });
+
+      // Фокус (иначе MSX/WebView может не отдавать keydown)
+      function keepFocus() {
+        try { document.body.focus(); } catch (_) {}
+        setTimeout(keepFocus, 1500);
+      }
+      keepFocus();
+
+      // Просто чтобы видеть, идут ли вообще кнопки с пульта
+      window.addEventListener('keydown', (e) => {
+        add('LOG', `key: code=${e.code} key=${e.key} keyCode=${e.keyCode}`);
+      }, true);
+
+      function loadScript(url) {
+        return new Promise((resolve, reject) => {
+          const s = document.createElement('script');
+          s.src = url;
+          s.async = false;
+          s.onload = () => resolve();
+          s.onerror = () => reject(new Error('Failed: ' + url));
+          document.head.appendChild(s);
+        });
+      }
+
+      async function boot() {
+        add('LOG', `UA: ${navigator.userAgent}`);
+
+        // Вендоры (они дают Navigator/Keypad/ObjectCollection и т.п.)
+        // Порядок важен.
+        const vendors = [
+          BASE + 'vender/jquery/jquery.js',
+          BASE + 'vender/navigator/navigator.js',
+          BASE + 'vender/keypad/keypad.js'
+        ];
+
+        for (const u of vendors) {
+          add('LOG', `load vendor: ${u}`);
+          await loadScript(u);
+          add('OK',  `loaded: ${u.split('/').slice(-2).join('/')}`);
+        }
+
+        // app.min.js — грузим текстом, чтобы можно было патчить, и запускаем через blob
+        add('LOG', `fetch app.min.js: ${UPSTREAM_APP_MIN}`);
+        const res = await fetch(UPSTREAM_APP_MIN, { cache: 'no-store' });
+        add('LOG', `app.min.js status: ${res.status} ${res.statusText}`);
+        if (!res.ok) throw new Error('app.min.js fetch failed: ' + res.status);
+
+        let js = await res.text();
+        add('OK', `app.min.js bytes: ${js.length}`);
+
+        // (Опционально) твои патчи сюда.
+        // ВАЖНО: НЕ подменяем Navigator.* — он теперь реальный из vender/navigator/navigator.js
+        // Пример: вырубить blacklist если ты это делал раньше:
+        // js = js.replace(/black_list\\s*=\\s*\\[[^\\]]*\\]/, 'black_list=[]');
+
+        const blob = new Blob([js], { type: 'text/javascript' });
+        const blobUrl = URL.createObjectURL(blob);
+
+        add('LOG', 'run app.min.js (blob)…');
+        await loadScript(blobUrl);
+        add('OK', 'app.min.js executed');
+
+        // Если нужно явно перевести в TV-режим раньше/жёстче:
+        // (обычно Lampa сама это делает, но на некоторых TV полезно)
+        setTimeout(() => {
+          try {
+            if (window.Lampa && window.Lampa.Platform && window.Lampa.Platform.tv) {
+              window.Lampa.Platform.tv();
+              add('OK', 'Lampa.Platform.tv() called');
+            } else {
+              add('LOG', 'Lampa.Platform.tv() not found yet');
+            }
+          } catch (e) {
+            add('ERR', 'Lampa.Platform.tv() error: ' + e.message);
+          }
+        }, 200);
+
+        // Контроль: появился ли Lampa / инициализация навигации
+        let waited = 0;
+        const iv = setInterval(() => {
+          waited += 250;
+          const hasL = !!window.Lampa;
+          const hasNav = typeof window.Navigator === 'object' && window.Navigator;
+          add('LOG', `alive: Lampa=${hasL} Navigator=${!!hasNav}`);
+          if (hasL || waited > 15000) clearInterval(iv);
+        }, 250);
+      }
+
+      boot().catch((e) => {
+        add('ERR', e && e.stack ? e.stack : String(e));
+      });
+    })();
+  </script>
 </body>
 </html>
