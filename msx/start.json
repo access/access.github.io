@@ -17,9 +17,9 @@
         {
           "type": "control",
           "layout": "0,0,5,1",
-          "image": "{PREFIX}{domain}/msx-logo.png",
+          "image": "https://access.github.io/msx/msx-logo.png",
           "label": "BlackLampa",
-          "action": "link:https://access.github.io/lampa-wrapper.html",
+          "action": "link:https://access.github.io/msx/lampa-wrapper.html",
           "selection": {
             "important": true,
             "action": "update:content:description",
