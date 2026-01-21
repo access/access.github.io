@@ -5,17 +5,6 @@
   <meta name="viewport" content="width=device-width, height=device-height, initial-scale=1, viewport-fit=cover" />
   <title>Lampa Wrapper</title>
 
-  <!--
-    Принцип:
-    - НИЧЕГО не “пересобираем” и не ломаем пути Лампы.
-    - Ставим <base href="UPSTREAM"> чтобы ./vender/... работали.
-    - Грузим app.min.js как blob и запускаем.
-    - Подменяем plugins_black_list.json на свой список (fetch + XHR).
-    - Guard history.pushState (чужой origin -> hash).
-    - SAFE-LOADER для внешних plugin scripts: грузим текстом, оборачиваем в try/catch.
-    - Фокус/keydown для пульта.
-  -->
-
   <link rel="stylesheet" href="https://yumata.github.io/lampa/css/app.css">
   <link rel="stylesheet" href="https://yumata.github.io/lampa/vender/scrollbar/jquery.scrollbar.css">
   <link rel="stylesheet" href="https://yumata.github.io/lampa/vender/keypad/style.css">
@@ -70,10 +59,8 @@
     const APP_URL  = 'https://raw.githubusercontent.com/yumata/lampa/main/app.min.js';
 
     const VENDORS = [
-      // (опционально, но пусть будет: webOS API)
       { name: 'webOSTV',   url: 'https://yumata.github.io/lampa/webos/webOSTV.js' },
 
-      // базовые зависимости
       { name: 'jquery',    url: VENDER + 'jquery/jquery.js' },
       { name: 'notify',    url: VENDER + 'notify/notify.js' },
       { name: 'scrollbar', url: VENDER + 'scrollbar/jquery.scrollbar.js' },
@@ -81,7 +68,6 @@
       { name: 'keypad',    url: VENDER + 'keypad/keypad.js' }
     ];
 
-    // ТВОЙ black list (JSON array)
     const BLACKLIST = [
       'lampa.line.pm',
       'xabb.ru/h.js',
@@ -112,15 +98,11 @@
       'yotube.com'
     ];
 
-    // SAFE-LOADER будет пытаться “обезвредить” любые внешние plugin-скрипты.
-    // По умолчанию: всё что содержит "/plugin/" ИЛИ "/plugins/" грузим через try/catch.
+    // безопасим именно плагины
     const SAFE_SCRIPT_MATCH = (urlStr) => {
       const s = String(urlStr || '');
-      // только http(s)
       if (!/^https?:\/\//i.test(s)) return false;
-      // безопасить в основном плагины (не core-скрипты Лампы)
-      if (s.includes('/plugin/') || s.includes('/plugins/')) return true;
-      return false;
+      return s.includes('/plugin/') || s.includes('/plugins/');
     };
 
     // === LOG ==================================================================
@@ -147,7 +129,6 @@
     // === HELPERS ==============================================================
 
     function injectBaseHref(href) {
-      // один раз
       if (document.querySelector('base[data-lampa-wrap="1"]')) return;
       const base = document.createElement('base');
       base.setAttribute('data-lampa-wrap', '1');
@@ -159,7 +140,7 @@
       return new Promise((resolve, reject) => {
         const s = document.createElement('script');
         s.src = src;
-        s.async = false; // порядок
+        s.async = false;
         s.onload = () => resolve();
         s.onerror = () => reject(new Error('Failed to load: ' + src));
         document.head.appendChild(s);
@@ -181,6 +162,39 @@
       try { return (x && x.message) ? x.message : String(x); } catch { return 'unknown'; }
     }
 
+    // === FIX: ensure #sprites exists =========================================
+
+    function ensureSpritesRoot() {
+      // Плагины типа shots ожидают #sprites и пишут туда <symbol>...
+      // Если элемента нет — падают на innerHTML.
+      let root = document.getElementById('sprites');
+      if (root) return root;
+
+      const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+      svg.setAttribute('id', 'sprites');
+      svg.setAttribute('xmlns', 'http://www.w3.org/2000/svg');
+      svg.setAttribute('xmlns:xlink', 'http://www.w3.org/1999/xlink');
+      svg.setAttribute('aria-hidden', 'true');
+      svg.setAttribute('style', 'position:absolute;width:0;height:0;overflow:hidden;left:-9999px;top:-9999px;');
+
+      // Вставляем максимально рано в body.
+      // Если body ещё не готов — закинем в documentElement и потом перекинем.
+      const target = document.body || document.documentElement;
+      target.insertBefore(svg, target.firstChild);
+
+      ok('created <svg id="sprites"> for plugins');
+      return svg;
+    }
+
+    function watchSpritesRoot() {
+      // если Лампа/плагины удалят — восстановим
+      const mo = new MutationObserver(() => {
+        if (!document.getElementById('sprites')) ensureSpritesRoot();
+      });
+      mo.observe(document.documentElement, { childList: true, subtree: true });
+      ok('sprites watcher enabled');
+    }
+
     // === PATCHES ==============================================================
 
     function patchHistoryCrossOriginGuard() {
@@ -192,16 +206,12 @@
           if (typeof url === 'string' && url.length) {
             const u = new URL(url, location.href);
             if (u.origin !== location.origin) {
-              const safeUrl =
-                location.pathname +
-                location.search +
-                '#ext=' + encodeURIComponent(u.href);
+              const safeUrl = location.pathname + location.search + '#ext=' + encodeURIComponent(u.href);
               return op(state, title, safeUrl);
             }
           }
           return op(state, title, url);
         } catch (_) {
-          // не даём падать
           return;
         }
       }
@@ -219,7 +229,6 @@
         catch { return false; }
       };
 
-      // fetch()
       const origFetch = window.fetch ? window.fetch.bind(window) : null;
       if (origFetch) {
         window.fetch = async function (input, init) {
@@ -238,7 +247,6 @@
         };
       }
 
-      // XHR (jQuery.ajax тоже здесь)
       const XHR = window.XMLHttpRequest;
       if (XHR) {
         const origOpen = XHR.prototype.open;
@@ -253,18 +261,15 @@
         XHR.prototype.send = function () {
           if (this.__lw_blk) {
             ok('blacklist: served via XHR');
-            // эмулируем асинхронный ответ, чтобы Лампа не словила “синхронный” сюрприз
             const xhr = this;
             setTimeout(() => {
               try {
-                // responseText/response часто read-only, но defineProperty обычно проходит на инстансе
                 try { Object.defineProperty(xhr, 'responseText', { configurable: true, get: () => json }); } catch {}
                 try { Object.defineProperty(xhr, 'response',     { configurable: true, get: () => json }); } catch {}
                 try { Object.defineProperty(xhr, 'status',       { configurable: true, get: () => 200 }); } catch {}
                 try { Object.defineProperty(xhr, 'readyState',   { configurable: true, get: () => 4 }); } catch {}
               } catch {}
 
-              // колбэки
               try { xhr.onreadystatechange && xhr.onreadystatechange(); } catch {}
               try { xhr.onload && xhr.onload(); } catch {}
               try { xhr.dispatchEvent && xhr.dispatchEvent(new Event('load')); } catch {}
@@ -279,16 +284,6 @@
     }
 
     function patchSafeExternalScriptLoader() {
-      // Цель: чтобы любые внешние plugin scripts не валили инициализацию,
-      // если в них ошибка в момент выполнения (как у тебя с "shots: innerHTML").
-      //
-      // Реализация:
-      // - перехватываем appendChild(script[src]) и вместо обычной загрузки:
-      //   fetch -> wrap try/catch -> blob -> inject -> onload
-      //
-      // Важно: это НЕ “ловит” ошибки, которые произойдут через минуты по таймеру в плагине,
-      // но решает твой конкретный класс “падает прямо при загрузке/инициализации плагина”.
-
       const _append = Node.prototype.appendChild;
 
       Node.prototype.appendChild = function (node) {
@@ -298,13 +293,13 @@
             if (src && SAFE_SCRIPT_MATCH(src)) {
               warn('SAFE-LOADER: ' + src);
 
-              // не даём браузеру грузить как обычный <script src=...>
-              // вместо этого — подхватываем сами:
               (async () => {
                 try {
+                  // ДО выполнения плагина — гарантируем #sprites
+                  ensureSpritesRoot();
+
                   const code = await fetchText(src);
 
-                  // wrap: try/catch вокруг всего тела
                   const wrapped =
                     "(()=>{try{\n" +
                     code +
@@ -331,7 +326,6 @@
                     try { node.onerror && node.onerror(e); } catch {}
                   };
 
-                  // ВАЖНО: вставляем туда же, где должен был быть оригинал
                   _append.call(this, s);
                 } catch (e) {
                   console.error('[SAFE-PLUGIN] load failed:', src, e);
@@ -339,12 +333,10 @@
                 }
               })();
 
-              return node; // “как будто вставили”
+              return node;
             }
           }
-        } catch (_) {
-          // если патчер сам упал — не ломаем DOM
-        }
+        } catch (_) {}
 
         return _append.call(this, node);
       };
@@ -359,12 +351,15 @@
 
       injectBaseHref(UPSTREAM);
 
+      // самый важный фикс для shots — ДО всего
+      ensureSpritesRoot();
+      watchSpritesRoot();
+
       patchHistoryCrossOriginGuard();
       patchSafeExternalScriptLoader();
 
       window.lampa_settings = window.lampa_settings || {};
 
-      // vendor'ы
       for (const v of VENDORS) {
         log('[LOG] load vendor: ' + v.url, 'dim');
         await loadScript(v.url);
@@ -373,7 +368,6 @@
 
       patchBlacklistInterceptors();
 
-      // app.min.js
       log('[LOG] fetch app.min.js: ' + APP_URL, 'dim');
       const code = await fetchText(APP_URL);
 
@@ -383,7 +377,6 @@
       await loadScript(blobUrl);
       try { URL.revokeObjectURL(blobUrl); } catch {}
 
-      // TV режим
       if (window.Lampa && window.Lampa.Platform && typeof window.Lampa.Platform.tv === 'function') {
         try {
           window.Lampa.Platform.tv();
@@ -393,7 +386,6 @@
         }
       }
 
-      // фокус для пульта/keydown
       focusKick();
       setTimeout(focusKick, 250);
       setTimeout(focusKick, 1000);
@@ -403,7 +395,6 @@
       ok('Lampa started');
     }
 
-    // глобальные ловушки (чтобы wrapper сам не умирал + лог)
     window.addEventListener('error', (e) => {
       err(e && e.message ? e.message : safeString(e));
     });
