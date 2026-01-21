@@ -151,6 +151,20 @@
 
   // --- main
   (async () => {
+
+    st('Loading jQuery…');
+
+    await new Promise((resolve, reject) => {
+      const jq = document.createElement('script');
+      jq.src = 'https://code.jquery.com/jquery-3.6.0.min.js';
+      jq.onload = () => {
+        addLine('OK', 'jQuery loaded, $=' + typeof window.$);
+        resolve();
+      };
+      jq.onerror = () => reject(new Error('Failed to load jQuery'));
+      document.head.appendChild(jq);
+    });
+
     // IMPORTANT: у тебя сейчас refs/heads/main — это иногда капризит на некоторых клиентах.
     // Надёжнее так:
     const SRC = 'https://raw.githubusercontent.com/yumata/lampa/main/app.min.js';
