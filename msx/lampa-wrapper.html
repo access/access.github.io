@@ -187,6 +187,13 @@
       (m) => { patched = true; return "black_list.length=0;" + m; }
     );
 
+    // FIX: some builds call Navigator.setCollection(), but method may not exist in this bundle.
+    // Make it safe: if missing -> no-op.
+    js = js.replace(/Navigator\.setCollection\s*\(/g, '(Navigator.setCollection||function(){return null;})( ');
+    js = js.replace(/Navigator\.follow\s*\(/g, '(Navigator.follow||function(){return null;})( ');
+
+
+
     // (B) fallback: remove pushes
     if (!patched) {
       const before = js;
@@ -211,34 +218,6 @@
     addLine('OK', 'Patch applied');
 
     st('Running patched Lampa…');
-
-    // ---- SmartTV fix: native Navigator conflicts with Lampa's Navigator.* API.
-    // Provide missing methods as proxies to Lampa.* runtime.
-    (function ensureNavigatorShim(){
-      const N = window.Navigator || (window.Navigator = {});
-      const proxy = (path) => function(...args){
-        try {
-          let obj = window;
-          for (const k of path.split('.')) obj = obj && obj[k];
-          if (typeof obj === 'function') return obj.apply(this, args);
-          throw new Error(`Target not a function: ${path}`);
-        } catch (e) {
-          console.error(`[NAV-SHIM] ${path} failed:`, e);
-          throw e;
-        }
-      };
-
-      // follow -> Listener.follow
-      if (typeof N.follow !== 'function') N.follow = proxy('Lampa.Listener.follow');
-
-      // setCollection -> Controller.collectionSet (в стеке прямо видно "collectionSet")
-      if (typeof N.setCollection !== 'function') N.setCollection = proxy('Lampa.Controller.collectionSet');
-
-      // часто всплывающие (на будущее) — безопасно, если нет цели
-      if (typeof N.select !== 'function') N.select = proxy('Lampa.Controller.select');
-      if (typeof N.back !== 'function') N.back = proxy('Lampa.Controller.back');
-      if (typeof N.toggle !== 'function') N.toggle = proxy('Lampa.Controller.toggle');
-    })();
 
 
     // Inject through Blob
