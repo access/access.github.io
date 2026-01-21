@@ -1,282 +1,234 @@
 <!doctype html>
-<html lang="ru">
+<html>
 <head>
-  <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
-  <title>Lampa Wrapper</title>
+  <meta charset='utf-8' />
+  <meta name='viewport' content='width=device-width, initial-scale=1, viewport-fit=cover' />
+  <title>Lampa wrapper</title>
 
-  <!-- ВАЖНО: base на yumata.github.io чтобы относительные ассеты работали как в оригинале -->
-  <base href="https://yumata.github.io/lampa/" />
+  <!-- IMPORTANT:
+       НЕ ставим <base href="https://yumata.github.io/...">.
+       Иначе history.pushState('?x=') резолвится в чужой origin и падает SecurityError.
+  -->
 
   <style>
-    html, body {
-      margin: 0;
-      padding: 0;
-      background: #000;
-      width: 100%;
-      height: 100%;
-      overflow: hidden;
+    html, body { margin:0; padding:0; width:100%; height:100%; background:#000; overflow:hidden; }
+
+    /* Lampa контейнер (контент) */
+    #lampa_root { position:fixed; inset:0; z-index:1; }
+
+    /* Логи поверх, но НЕ мешают управлению */
+    #log_overlay {
+      position:fixed; left:0; top:0; right:0; bottom:0;
+      z-index:99999;
+      pointer-events:none;
+      font:12px/1.25 monospace;
+      color:#fff;
+      opacity:0.65;
+      white-space:pre-wrap;
+      word-break:break-word;
+      padding:10px 12px;
+      background:transparent;
+    }
+    #log_overlay.hidden { display:none; }
+
+    #log_controls {
+      position:fixed;
+      top:10px; left:10px;
+      z-index:100000;
+      pointer-events:auto;
+      display:flex; gap:8px;
+    }
+    #log_controls button {
+      font:12px/1.2 sans-serif;
+      padding:6px 10px;
+      border-radius:8px;
+      border:1px solid rgba(255,255,255,0.25);
+      background:rgba(0,0,0,0.55);
+      color:#fff;
+      cursor:pointer;
     }
 
-    /* ЛОГ: маленький оверлей, не перекрывает UI */
-    #__wraplog {
-      position: fixed;
-      left: 0;
-      bottom: 0;
-      width: 52vw;
-      max-height: 34vh;
-      overflow: auto;
-      background: rgba(0,0,0,0.45);
-      color: rgba(255,255,255,0.92);
-      font: 12px/1.25 ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
-      padding: 10px 12px;
-      z-index: 2147483647;
-      pointer-events: none; /* критично: не съедает управление */
-      white-space: pre-wrap;
-      word-break: break-word;
-      border-top-right-radius: 10px;
+    #status_line {
+      position:fixed;
+      top:10px; right:10px;
+      z-index:100000;
+      pointer-events:none;
+      font:12px/1.2 monospace;
+      color:#fff;
+      background:rgba(0,0,0,0.35);
+      border:1px solid rgba(255,255,255,0.15);
+      border-radius:8px;
+      padding:6px 10px;
+      max-width:60vw;
+      overflow:hidden;
+      text-overflow:ellipsis;
+      white-space:nowrap;
     }
-    #__wraplog.min {
-      max-height: 4.2em;
-      overflow: hidden;
-    }
-    #__wraplog .t { opacity: 0.65; }
-    #__wraplog .ok { color: #aef1ae; }
-    #__wraplog .er { color: #ffb3b3; }
-    #__wraplog .st { color: #cfe3ff; }
   </style>
 
-  <!-- CSS как в yumata/lampa -->
-  <link rel="stylesheet" href="vender/scrollbar/jquery.scrollbar.css" />
-  <link rel="stylesheet" href="vender/keypad/style.css" />
-  <link rel="stylesheet" href="css/app.css?v=4.56" />
+  <!-- Подключаем CSS как в оригинальном index.html, но абсолютными URL -->
+  <link rel='stylesheet' href='https://yumata.github.io/lampa/css/fontawesome.css' />
+  <link rel='stylesheet' href='https://yumata.github.io/lampa/css/solid.css' />
+  <link rel='stylesheet' href='https://yumata.github.io/lampa/css/regular.css' />
+  <link rel='stylesheet' href='https://yumata.github.io/lampa/css/brands.css' />
+  <link rel='stylesheet' href='https://yumata.github.io/lampa/css/style.css' />
 </head>
-
 <body>
+  <div id='lampa_root'></div>
+
+  <div id='log_controls'>
+    <button id='btn_toggle'>Hide log</button>
+    <button id='btn_clear'>Clear</button>
+  </div>
+  <div id='status_line'>boot…</div>
+  <div id='log_overlay'></div>
+
 <script>
 (() => {
-  'use strict';
+  const $log = document.getElementById('log_overlay');
+  const $status = document.getElementById('status_line');
+  const $toggle = document.getElementById('btn_toggle');
+  const $clear = document.getElementById('btn_clear');
 
-  // ====== CONFIG ======
-  const BASE = 'https://yumata.github.io/lampa/';
-  const UPSTREAM_APP = 'https://raw.githubusercontent.com/yumata/lampa/main/app.min.js';
+  let logHidden = false;
+  let buf = [];
+  const MAX = 300;
 
-  // ====== LOG OVERLAY ======
-  const logBox = document.createElement('div');
-  logBox.id = '__wraplog';
-  logBox.className = 'min';
-  document.documentElement.appendChild(logBox);
-
-  let t0 = performance.now();
-  let lastLine = '';
-  function ts() {
-    const s = ((performance.now() - t0) / 1000).toFixed(3);
-    return s.padStart(7, ' ');
+  function line(s){
+    buf.push(String(s));
+    if (buf.length > MAX) buf.splice(0, buf.length - MAX);
+    if (!logHidden) $log.textContent = buf.join('\n');
   }
-  function add(tag, msg, cls) {
-    const line = `${ts()} [${tag}] ${msg}`;
-    lastLine = line;
-    const span = document.createElement('div');
-    if (cls) span.className = cls;
-    span.textContent = line;
-    logBox.appendChild(span);
-    // автоскролл вниз
-    logBox.scrollTop = logBox.scrollHeight;
-  }
-  function setMin(min) {
-    logBox.classList.toggle('min', !!min);
-  }
-  // toggle: 0 или L (на ТВ часто есть цифры)
-  window.addEventListener('keydown', (e) => {
-    const k = e.key || '';
-    if (k === '0' || k === 'l' || k === 'L') {
-      setMin(!logBox.classList.contains('min'));
-    }
-  }, { capture: true });
+  function status(s){ $status.textContent = String(s); }
 
-  // после успешного старта — авто-свернуть через 2 сек
-  function autoMinLater() {
-    setTimeout(() => setMin(true), 2000);
-  }
+  $toggle.onclick = () => {
+    logHidden = !logHidden;
+    $log.classList.toggle('hidden', logHidden);
+    $toggle.textContent = logHidden ? 'Show log' : 'Hide log';
+    if (!logHidden) $log.textContent = buf.join('\n');
+  };
+  $clear.onclick = () => { buf = []; $log.textContent = ''; };
 
-  // ====== HELPERS ======
-  function abs(u) {
-    if (/^https?:\/\//i.test(u)) return u;
-    return BASE.replace(/\/+$/,'/') + u.replace(/^\/+/,'');
-  }
+  // нормальный фокус для ТВ/пульта
+  window.addEventListener('load', () => {
+    try { window.focus(); } catch(e) {}
+    try { document.body.focus && document.body.focus(); } catch(e) {}
+  });
 
-  function loadScript(src) {
+  // логируем console
+  const orig = {
+    log: console.log.bind(console),
+    warn: console.warn.bind(console),
+    error: console.error.bind(console),
+  };
+  console.log = (...a) => { orig.log(...a); line('[LOG] ' + a.map(String).join(' ')); };
+  console.warn = (...a) => { orig.warn(...a); line('[WRN] ' + a.map(String).join(' ')); };
+  console.error = (...a) => { orig.error(...a); line('[ERR] ' + a.map(String).join(' ')); };
+
+  window.addEventListener('error', (e) => {
+    line('[ERR] window.onerror: ' + (e && e.message ? e.message : e));
+  });
+  window.addEventListener('unhandledrejection', (e) => {
+    line('[ERR] unhandledrejection: ' + (e && e.reason ? e.reason : e));
+  });
+
+  // Подмена корня, чтобы Лампа рисовала в наш контейнер (если ей важно)
+  // В оригинале она использует body; это просто страховка.
+  window.__LAMPA_WRAPPER_ROOT__ = document.getElementById('lampa_root');
+
+  function addScript(src){
     return new Promise((resolve, reject) => {
       const s = document.createElement('script');
-      s.src = abs(src);
+      s.src = src;
       s.async = false;
-      s.onload = () => resolve();
-      s.onerror = (e) => reject(new Error('script load failed: ' + src));
+      s.onload = resolve;
+      s.onerror = () => reject(new Error('Failed to load: ' + src));
       document.head.appendChild(s);
-      add('LOG', 'load vendor: ' + abs(src));
     });
   }
 
-  async function fetchText(url) {
-    add('NET', 'GET ' + url, 'st');
-    const res = await fetch(url, { cache: 'no-store' });
-    add('NET', 'status ' + res.status + ' ' + res.statusText, res.ok ? 'ok' : 'er');
-    if (!res.ok) throw new Error('fetch failed: ' + res.status);
-    return await res.text();
-  }
+  async function boot(){
+    status('load vendors…');
+    line('UA: ' + navigator.userAgent);
 
-  // ====== PATCHES ======
-  function patchAppMin(js) {
-    // ТВОЙ СТАРЫЙ БАГ: SmartTV имеет "Navigator" (native), у которого нет follow/setCollection/focus и т.п.
-    // Мы НЕ пытаемся "угадывать", а делаем мягкий прокси: если у глобального Navigator нет методов — подменяем на Lampa.*.
-    // (Это безопаснее чем тупо replace всего подряд.)
-    const shim = `
-;(function(){
-  try {
-    // если Lampa не определена — выйдем; shim будет вызван позже через таймер
-    function applyShim(){
-      if (!window.Lampa) return false;
+    // Вендоры как в index.html (ВАЖНО: порядок)
+    await addScript('https://yumata.github.io/lampa/vender/jquery/jquery.js');
+    await addScript('https://yumata.github.io/lampa/vender/navigator/navigator.js');
+    await addScript('https://yumata.github.io/lampa/vender/keypad/keypad.js');
+    await addScript('https://yumata.github.io/lampa/vender/controller/controller.js');
 
-      // SmartTV может иметь window.Navigator как интерфейс/объект.
-      // Нам нужен "Navigator" от Lampa (vendor/navigator.js) или прокси к Lampa.Controller.
-      const hasBadNavigator = (typeof window.Navigator !== 'undefined')
-        && (typeof window.Navigator === 'object' || typeof window.Navigator === 'function')
-        && (typeof window.Navigator.follow !== 'function'
-            || typeof window.Navigator.setCollection !== 'function'
-            || typeof window.Navigator.focus !== 'function');
-
-      if (!hasBadNavigator) return true;
-
-      const proxy = new Proxy({}, {
-        get(_t, prop){
-          // mapping на то, что реально существует в Lampa
-          const map = {
-            follow: () => window.Lampa.Listener && window.Lampa.Listener.follow,
-            setCollection: () => window.Lampa.Controller && window.Lampa.Controller.collectionSet,
-            focus: () => window.Lampa.Controller && window.Lampa.Controller.collectionFocus,
-            select: () => window.Lampa.Controller && window.Lampa.Controller.select,
-            back: () => window.Lampa.Controller && window.Lampa.Controller.back,
-            toggle: () => window.Lampa.Controller && window.Lampa.Controller.toggle,
-          };
-          if (prop in map) {
-            const fn = map[prop]();
-            return (typeof fn === 'function') ? fn : undefined;
-          }
-          // если в Lampa есть Navigator (из vendor/navigator.js) — пробуем оттуда
-          if (window.Lampa && window.Lampa.Navigator && typeof window.Lampa.Navigator[prop] !== 'undefined') {
-            return window.Lampa.Navigator[prop];
-          }
-          return undefined;
-        }
-      });
-
-      try { window.Navigator = proxy; } catch(e) {}
-      try { window.navigator = window.navigator; } catch(e) {}
-      return true;
-    }
-
-    if (!applyShim()) {
-      let n=0;
-      const id=setInterval(function(){
-        n++;
-        if (applyShim() || n>100) clearInterval(id);
-      }, 50);
-    }
-  } catch(e) {}
-})();\n`;
-
-    // Вставляем shim в самое начало (до выполнения кода)
-    return shim + js;
-  }
-
-          const vendors = [
-          BASE + 'vender/jquery/jquery.js',
-          BASE + 'vender/dash/dash.js',
-          BASE + 'vender/hls/hls.js',
-          BASE + 'vender/keypad/keypad.js',
-          BASE + 'vender/notify/notify.js',
-          BASE + 'vender/vast/vast.js',
-          BASE + 'vender/scrollbar/jquery.scrollbar.js',
-          BASE + 'vender/qrencode/q.js',
-          BASE + 'vender/navigator/navigator.js',
-          BASE + 'vender/keypad/keypad.js'
-        ];
-
-
-  // ====== BOOT ======
-  (async () => {
+    // Гарантируем tv-режим и фокус (после vendor'ов)
+    status('init platform…');
     try {
-      add('LOG', 'UA: ' + navigator.userAgent);
-
-      // Вендоры (как в yumata/lampa/index.html)
-      await loadScript('vender/jquery/jquery.js');
-      await loadScript('vender/scrollbar/jquery.scrollbar.min.js');
-      await loadScript('vender/hls/hls.js');
-      await loadScript('vender/notify/notify.js');
-      await loadScript('vender/vast/vast.js');
-      await loadScript('vender/navigator/navigator.js');
-      await loadScript('vender/qrcode/qrcode.js');
-      await loadScript('vender/keypad/keypad.js');
-      await loadScript('vender/dash/dash.js');
-      //await loadScript('vender/interact.min.js');
-      //await loadScript('vender/swiper/swiper.js');
-      //await loadScript('vender/imagesloaded.pkgd.min.js');
-
-      add('OK', 'vendor loaded', 'ok');
-
-      // TV-режим
-      if (window.Lampa && window.Lampa.Platform && typeof window.Lampa.Platform.tv === 'function') {
-        window.Lampa.Platform.tv();
-        add('OK', 'Lampa.Platform.tv() called', 'ok');
-      } else {
-        add('LOG', 'Lampa.Platform.tv() not yet available (will be in app)', 'st');
-      }
-
-      // Тянем upstream app.min.js
-      const js = await fetchText(UPSTREAM_APP);
-      add('OK', 'app.min.js bytes: ' + js.length, 'ok');
-
-      // Патчим
-      const patched = patchAppMin(js);
-      add('OK', 'patch applied', 'ok');
-
-      // Запускаем как blob
-      const blob = new Blob([patched], { type: 'text/javascript' });
-      const url = URL.createObjectURL(blob);
-
-      const s = document.createElement('script');
-      s.src = url;
-      s.onload = () => add('OK', 'app.min.js executed', 'ok');
-      s.onerror = (e) => add('ERR', 'app.min.js error: ' + (e && e.message ? e.message : ''), 'er');
-      document.head.appendChild(s);
-
-      // Watchdog: ждём UI
-      const start = performance.now();
-      const timer = setInterval(() => {
-        const dt = performance.now() - start;
-
-        const ok =
-          (window.Lampa && typeof window.Lampa === 'object') &&
-          (window.Lampa.Controller && typeof window.Lampa.Controller === 'object');
-
-        if (ok) {
-          clearInterval(timer);
-          add('OK', 'Lampa started (Lampa.Controller detected) dt=' + Math.round(dt) + 'ms', 'ok');
-          autoMinLater();
-          return;
-        }
-
-        if (dt > 20000) {
-          clearInterval(timer);
-          add('ERR', 'Timeout: Lampa.Controller not detected after 20000ms', 'er');
-          add('HINT', 'Если на ТВ пусто/неуправляемо: проверь доступ к yumata.github.io (CSS/vendor) и к raw.githubusercontent.com (app.min.js)', 'st');
-        }
-      }, 250);
-
-    } catch (e) {
-      add('ERR', String(e && e.message ? e.message : e), 'er');
+      window.Lampa && window.Lampa.Platform && window.Lampa.Platform.tv && window.Lampa.Platform.tv();
+      line('Lampa.Platform.tv() called');
+    } catch(e){
+      line('Platform.tv() not available yet');
     }
-  })();
+
+    status('fetch app.min.js…');
+
+    // Можно заменить на https://yumata.github.io/lampa/app.min.js если он у тебя актуальный.
+    const SRC = 'https://raw.githubusercontent.com/yumata/lampa/refs/heads/main/app.min.js';
+
+    const res = await fetch(SRC, { cache: 'no-store' });
+    if (!res.ok) throw new Error('Fetch failed: ' + res.status + ' ' + res.statusText);
+    let js = await res.text();
+
+    // --- PATCH: black_list ---
+    let patched = false;
+    js = js.replace(
+      /black_list\.forEach\(function\s*\(b\)\s*\{/,
+      (m) => { patched = true; return 'black_list.length=0;' + m; }
+    );
+    if (!patched) {
+      const before = js;
+      js = js
+        .replace(/black_list\.push\('lipp\.xyz'\);\s*/g, '')
+        .replace(/black_list\.push\('llpp\.xyz'\);\s*/g, '')
+        .replace(/black_list\.push\('scabrum\.github\.io'\);\s*/g, '')
+        .replace(/black_list\.push\('bylampa\.github\.io'\);\s*/g, '')
+        .replace(/black_list\.push\('tinyurl\.com'\);\s*/g, '')
+        .replace(/black_list\.push\('t\.me\/'\);\s*/g, '')
+        .replace(/black_list\.push\('4pda\.'\);\s*/g, '')
+        .replace(/black_list\.push\('teletype\.in'\);\s*/g, '')
+        .replace(/black_list\.push\('yotube\.com'\);\s*/g, '');
+      patched = (js !== before);
+    }
+    if (!patched) {
+      status('PATCH FAILED');
+      throw new Error('Patch failed (signature not found).');
+    }
+
+    // --- FIX: относительные пути к ресурсам ---
+    // Без <base> часть путей вида "./vender/..." останется относительной к wrapper'у.
+    // Поднимаем их в абсолютный yumata CDN.
+    js = js
+      .replace(/\.(\/vender\/)/g, 'https://yumata.github.io/lampa/vender/')
+      .replace(/\.(\/plugins\/)/g, 'https://yumata.github.io/lampa/plugins/')
+      .replace(/\.(\/img\/)/g, 'https://yumata.github.io/lampa/img/')
+      .replace(/\.(\/css\/)/g, 'https://yumata.github.io/lampa/css/');
+
+    status('run app…');
+
+    const blob = new Blob([js], { type: 'application/javascript' });
+    const url = URL.createObjectURL(blob);
+    const s = document.createElement('script');
+    s.src = url;
+    s.onload = () => { try { URL.revokeObjectURL(url); } catch(e) {} };
+    document.head.appendChild(s);
+
+    // Если пульт/клавиши не ловятся — очень часто нужно, чтобы фокус был на body
+    setTimeout(() => {
+      try { window.focus(); } catch(e) {}
+      try { document.body.focus && document.body.focus(); } catch(e) {}
+    }, 1000);
+  }
+
+  boot().catch((e) => {
+    status('BOOT FAILED');
+    console.error(e);
+  });
 })();
 </script>
 </body>

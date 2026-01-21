@@ -35,7 +35,7 @@
           "layout": "0,1,5,1",
           "image": "https://access.github.io/msx/v4.msxplayer.ru.png",
           "label": "MSXPlayer v4",
-          "action": "link:http://v4.msxplayer.ru/"
+          "action": "link:https://v4.msxplayer.ru/"
         }
       ]
     }
