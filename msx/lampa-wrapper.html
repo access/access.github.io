@@ -189,8 +189,35 @@
 
     // FIX: some builds call Navigator.setCollection(), but method may not exist in this bundle.
     // Make it safe: if missing -> no-op.
-    js = js.replace(/Navigator\.setCollection\s*\(/g, '(Navigator.setCollection||function(){return null;})( ');
-    js = js.replace(/Navigator\.follow\s*\(/g, '(Navigator.follow||function(){return null;})( ');
+    //js = js.replace(/Navigator\.setCollection\s*\(/g, '(Navigator.setCollection||function(){return null;})( ');
+    //js = js.replace(/Navigator\.follow\s*\(/g, '(Navigator.follow||function(){return null;})( ');
+
+
+    // --- Universal Navigator shim: turn missing methods into no-op (internal Navigator, not window.Navigator)
+    const NAV_SHIM = `
+    ;try{
+      // internal Navigator is expected to be a plain object in bundle scope
+      if (typeof Navigator === 'object' && Navigator && !Navigator.__msxShim) {
+        Navigator.__msxShim = 1;
+        Navigator = new Proxy(Navigator, {
+          get(target, prop){
+            const v = target[prop];
+            if (v !== undefined) return v;
+            // return no-op function for any missing method/property access
+            return function(){ return null; };
+          }
+        });
+      }
+    }catch(e){}
+    `;
+
+    // Inject right after first "var Navigator" or "let Navigator" definition
+    if (/(\b(var|let|const)\s+Navigator\s*=)/.test(js)) {
+      js = js.replace(/(\b(var|let|const)\s+Navigator\s*=[^;]*;)/, `$1\n${NAV_SHIM}\n`);
+    } else {
+      // fallback: inject at very top (works only if Navigator is global; may not)
+      js = NAV_SHIM + "\n" + js;
+    }
 
 
 
