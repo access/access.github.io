@@ -210,6 +210,11 @@
 
     addLine('OK', 'Patch applied');
 
+    // FIX: SmartTV has native Navigator (no .follow). Lampa expects its own.
+    // Replace internal call with Listener.follow which exists in Lampa runtime.
+    js = js.replace(/Navigator\.follow\s*\(/g, 'Lampa.Listener.follow(');
+
+
     st('Running patched Lampa…');
 
     // Inject through Blob
