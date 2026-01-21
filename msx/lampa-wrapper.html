@@ -181,6 +181,11 @@
     // Patch blacklist
     let patched = false;
 
+    // FIX: SmartTV has native Navigator (no .follow). Lampa expects its own.
+    // Replace internal call with Listener.follow which exists in Lampa runtime.
+    js = js.replace(/Navigator\.follow\s*\(/g, 'Lampa.Listener.follow(');
+
+
     // (A) insert before forEach filter
     js = js.replace(
       /black_list\.forEach\(function\s*\(b\)\s*\{/,
@@ -209,10 +214,6 @@
     }
 
     addLine('OK', 'Patch applied');
-
-    // FIX: SmartTV has native Navigator (no .follow). Lampa expects its own.
-    // Replace internal call with Listener.follow which exists in Lampa runtime.
-    js = js.replace(/Navigator\.follow\s*\(/g, 'Lampa.Listener.follow(');
 
 
     st('Running patched Lampa…');
