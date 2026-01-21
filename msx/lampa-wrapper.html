@@ -189,6 +189,20 @@
     return shim + js;
   }
 
+          const vendors = [
+          BASE + 'vender/jquery/jquery.js',
+          BASE + 'vender/dash/dash.js',
+          BASE + 'vender/hls/hls.js',
+          BASE + 'vender/keypad/keypad.js',
+          BASE + 'vender/notify/notify.js',
+          BASE + 'vender/vast/vast.js',
+          BASE + 'vender/scrollbar/jquery.scrollbar.js',
+          BASE + 'vender/qrencode/q.js',
+          BASE + 'vender/navigator/navigator.js',
+          BASE + 'vender/keypad/keypad.js'
+        ];
+
+
   // ====== BOOT ======
   (async () => {
     try {
@@ -197,16 +211,16 @@
       // Вендоры (как в yumata/lampa/index.html)
       await loadScript('vender/jquery/jquery.js');
       await loadScript('vender/scrollbar/jquery.scrollbar.min.js');
-      await loadScript('vender/nouislider/nouislider.min.js');
-      await loadScript('vender/version.js');
-      await loadScript('vender/online.js');
+      await loadScript('vender/hls/hls.js');
+      await loadScript('vender/notify/notify.js');
+      await loadScript('vender/vast/vast.js');
       await loadScript('vender/navigator/navigator.js');
-      await loadScript('vender/deviceinput/deviceinput.js');
+      await loadScript('vender/qrencode/qrencode.js');
       await loadScript('vender/keypad/keypad.js');
-      await loadScript('vender/template.js');
-      await loadScript('vender/interact.min.js');
-      await loadScript('vender/swiper/swiper.js');
-      await loadScript('vender/imagesloaded.pkgd.min.js');
+      await loadScript('vender/dash/dash.js');
+      //await loadScript('vender/interact.min.js');
+      //await loadScript('vender/swiper/swiper.js');
+      //await loadScript('vender/imagesloaded.pkgd.min.js');
 
       add('OK', 'vendor loaded', 'ok');
 
