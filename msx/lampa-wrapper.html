@@ -47,6 +47,63 @@
   <div id="st" style="padding-top:42px">Loading…</div>
   <div id="log"></div>
 
+
+<script>
+(function () {
+  'use strict';
+
+  function safe(fn, fallback) {
+    return function () {
+      try { return fn && fn.apply(this, arguments); }
+      catch (e) { console.error(e); return fallback; }
+    };
+  }
+
+  // Some SmartTV browsers expose window.Navigator (native) – Lampa expects its own API on it.
+  var N = (typeof window.Navigator !== 'undefined' && window.Navigator) ? window.Navigator : (window.Navigator = {});
+
+  // Minimal state
+  N.__lampa = N.__lampa || { collection: null, focused: null, last: {} };
+
+  // follow() – safest is to forward to Lampa.Listener.follow when it appears, otherwise no-op
+  if (typeof N.follow !== 'function') {
+    N.follow = function () {
+      if (window.Lampa && Lampa.Listener && typeof Lampa.Listener.follow === 'function') {
+        return Lampa.Listener.follow.apply(Lampa.Listener, arguments);
+      }
+      // no-op until Lampa runtime appears
+      return false;
+    };
+  }
+
+  // setCollection(collection) – store and try to forward to controller if exists
+  if (typeof N.setCollection !== 'function') {
+    N.setCollection = function (collection) {
+      N.__lampa.collection = collection;
+      if (window.Lampa && Lampa.Controller && typeof Lampa.Controller.collectionSet === 'function') {
+        // NOTE: do NOT call back into Navigator.* from here; only store
+      }
+      return true;
+    };
+  }
+
+  // focus(item) – store focused; if Lampa has Controller/Selector, let it handle later
+  if (typeof N.focus !== 'function') {
+    N.focus = function (item) {
+      N.__lampa.focused = item;
+      return true;
+    };
+  }
+
+  // canmove/move/remove/multiAdd – make them safe no-ops (prevents crash)
+  if (typeof N.canmove !== 'function') N.canmove = function(){ return true; };
+  if (typeof N.move !== 'function')    N.move    = function(){ return true; };
+  if (typeof N.remove !== 'function')  N.remove  = function(){ return true; };
+  if (typeof N.multiAdd !== 'function')N.multiAdd= function(){ return true; };
+
+})();
+</script>
+
 <script>
 (() => {
   const stEl  = document.getElementById('st');
@@ -189,9 +246,9 @@
 
     // FIX: some builds call Navigator.setCollection(), but method may not exist in this bundle.
     // Make it safe: if missing -> no-op.
-    js = js.replace(/Navigator\.setCollection\s*\(/g, '(Navigator.setCollection||function(){return null;})( ');
-    js = js.replace(/Navigator\.follow\s*\(/g, '(Navigator.follow||function(){return null;})( ');
-    js = js.replace(/Navigator\.focus\s*\(/g, '(Navigator.focus||function(){return null;} )(');
+    //js = js.replace(/Navigator\.setCollection\s*\(/g, '(Navigator.setCollection||function(){return null;})( ');
+    //js = js.replace(/Navigator\.follow\s*\(/g, '(Navigator.follow||function(){return null;})( ');
+    //js = js.replace(/Navigator\.focus\s*\(/g, '(Navigator.focus||function(){return null;} )(');
 
 
 
