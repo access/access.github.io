@@ -32,7 +32,7 @@
         },
         {
           "type": "control",
-          "layout": "0,0,5,1",
+          "layout": "0,1,5,1",
           "image": "https://access.github.io/msx/msx-logo.png",
           "label": "BlackLampaWrapper",
           "action": "link:https://access.github.io/msx/lampa-wrapper.html",
@@ -48,7 +48,7 @@
         },
         {
           "type": "control",
-          "layout": "0,1,5,1",
+          "layout": "0,2,5,1",
           "image": "https://access.github.io/msx/v4.msxplayer.ru.png",
           "label": "Yumata",
           "action": "link:https://yumata.github.io/lampa"
