@@ -7,7 +7,7 @@
         "https://nb557.github.io/plugins/online_mod.js",
         "https://bwa.to/cloud.js",
         "https://skaztv.online/store.js",
-        "https://bylampa.github.io/addon.js"
+        "https://bylampa.github.io/addon.js",
         "https://amiv1.github.io/lampa/rating.js",
         "https://amikdn.github.io/buttons.js"
     ];
