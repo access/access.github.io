@@ -4,12 +4,11 @@
     "http://skaz.tv/vcdn.js",
     "scripts/rating.js",
     "https://bwa.to/cloud.js",
-    "https://bylampa.github.io/addon.js",
+    "https://skaztv.online/store.js",
     "https://bylampa.github.io/bylampa_source.js",
     "https://bylampa.github.io/cardify.js",
     "https://bylampa.github.io/cinema.js",
-    "https://bylampa.github.io/redirect.js",
-    "https://skaztv.online/store.js"
+    "https://bylampa.github.io/addon.js"
   ],
   "disabled": [],
   "deprecated":[
