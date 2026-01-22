@@ -31,7 +31,9 @@
         // "https://skaztv.online/store.js",
         // "https://skaztv.online/js/tricks.js",
 
-        "https://amiv1.github.io/lampa/rating.js",
+        // "https://amiv1.github.io/lampa/rating.js",
+        "scripts/rating.js",
+
         "https://amikdn.github.io/buttons.js"
     ];
 
