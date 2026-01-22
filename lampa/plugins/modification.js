@@ -46,7 +46,7 @@
     // список автоплагинов (НЕ УДАЛЯЮ закомментированные — оставляю как есть)
     // =========================================================================
     const PLUGINS = [
-        "https://bdvburik.github.io/title.js",
+        // "https://bdvburik.github.io/title.js",
         "https://amikdn.github.io/buttons.js",
         "https://bywolf88.github.io/lampa-plugins/interface_mod.js",
         "scripts/rating.js",
