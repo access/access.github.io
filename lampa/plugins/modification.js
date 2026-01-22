@@ -73,7 +73,7 @@
 
         //players
         "https://nb557.github.io/plugins/online_mod.js",
-        "https://lampa.stream/modss",
+        // "https://lampa.stream/modss",
         // "https://bwa.to/rc",
         "https://bwa.to/cloud.js",
 
