@@ -1,0 +1,18 @@
+{
+  "status": "success",
+  "data": {
+    "account": {
+      "id": "0001001",
+      "name": "access",
+      "premium": true
+    },
+    "settings": {
+      "interface_language": "ru",
+      "player_type": "videojs",
+      "proxy_enabled": false,
+      "font_size": "medium"
+    },
+    "last_sync": "2026-01-22T12:00:00Z"
+  }
+}
+
