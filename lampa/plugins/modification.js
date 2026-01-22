@@ -89,24 +89,24 @@
             'right:12px',
             'bottom:12px',
             'z-index:2147483647',
-            'background:rgba(0,0,0,0.82)',
- 'color:#fff',
- 'border-radius:12px',
- 'padding:10px 12px',
- 'box-sizing:border-box',
- 'font:' + POPUP_FONT,
- 'font-weight:500',                 // одинаковый везде (не прыгает)
-'font-variant-ligatures:none',
-'letter-spacing:0',
-'-webkit-font-smoothing:antialiased',
-'text-rendering:optimizeSpeed',
-'pointer-events:none',
-'white-space:pre-wrap',
-'word-break:break-word',
-'overflow:auto',
-'box-shadow:0 10px 30px rgba(0,0,0,0.25)'
-// scrollbar-gutter НЕ везде поддерживается; добавлять можно, но не критично.
-// 'scrollbar-gutter:stable both-edges'
+            'background:rgba(0,0,0,0.44)',
+            'color:#fff',
+            'border-radius:12px',
+            'padding:10px 12px',
+            'box-sizing:border-box',
+            'font:' + POPUP_FONT,
+            'font-weight:500',                 // одинаковый везде (не прыгает)
+            'font-variant-ligatures:none',
+            'letter-spacing:0',
+            '-webkit-font-smoothing:antialiased',
+            'text-rendering:optimizeSpeed',
+            'pointer-events:none',
+            'white-space:pre-wrap',
+            'word-break:break-word',
+            'overflow:auto',
+            'box-shadow:0 10px 30px rgba(0,0,0,0.25)'
+            // scrollbar-gutter НЕ везде поддерживается; добавлять можно, но не критично.
+            // 'scrollbar-gutter:stable both-edges'
         ].join(';');
 
         const title = document.createElement('div');
