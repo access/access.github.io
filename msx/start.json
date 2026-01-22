@@ -33,7 +33,7 @@
         {
           "type": "control",
           "layout": "0,1,5,1",
-          "image": "https://access.github.io/msx/msx-logo.png",
+          "image": "https://access.github.io/msx/msx-logo.old.png",
           "label": "BlackLampaWrapper",
           "action": "link:https://access.github.io/msx/lampa-wrapper.html",
           "selection": {
