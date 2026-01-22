@@ -64,9 +64,9 @@
         "https://bylampa.github.io/source.js",
         // "https://bylampa.github.io/addon.js",
 
-        // "https://bdvburik.github.io/title.js",
         "https://bywolf88.github.io/lampa-plugins/interface_mod.js",
 
+        "https://bdvburik.github.io/title.js",
         //sources...
         "https://tsynik.github.io/lampa/e.js",
         // "https://bwa.to/rc",
