@@ -163,6 +163,15 @@
     // =========================
     var ui = { wrap: null, inp: null, bEnter: null, bUnlock: null, err: null, sel: 0 };
 
+    function blurInputHard() {
+        if (!ui.inp) return;
+        try { ui.inp.blur(); } catch (_) { }
+        try { ui.inp.setAttribute('readonly', 'readonly'); } catch (_) { }
+        setTimeout(function () {
+            try { ui.inp && ui.inp.removeAttribute('readonly'); } catch (_) { }
+        }, 0);
+    }
+
     function setSel(n) {
         ui.sel = (n === 1) ? 1 : 0;
         if (!ui.bEnter || !ui.bUnlock) return;
@@ -174,6 +183,10 @@
         var on = (ui.sel === 0) ? a : b;
         on.style.outline = '2px solid rgba(255,255,255,.65)';
         on.style.background = 'rgba(255,255,255,.08)';
+
+        // *** FIX ТВ: когда выбрали НЕ "Enter" — обязательно убираем фокус с input,
+        // иначе OK снова вызывает системное окно вместо клика по кнопке.
+        if (ui.sel === 1) blurInputHard();
     }
 
     function ensureOverlay() {
@@ -221,7 +234,7 @@
             '">Unlock</div>' +
             '</div>' +
             '<div id="msx_pw_err" style="margin-top:10px;opacity:.85;display:none;color:#ff6b6b">Wrong password</div>' +
-            '<div style="margin-top:10px;opacity:.55;font-size:12px">TV: use arrows (←→ / ↑↓) and OK</div>';
+            '<div style="margin-top:10px;opacity:.55;font-size:12px">TV: use arrows and OK</div>';
 
         wrap.appendChild(box);
         document.body.appendChild(wrap);
@@ -232,18 +245,16 @@
         ui.bUnlock = box.querySelector('#msx_btn_unlock');
         ui.err = box.querySelector('#msx_pw_err');
 
-        // ВАЖНО: НЕ фокусим поле автоматически (чтобы не вызывать системное окно само)
-        try { ui.inp.blur(); } catch (_) { }
-
+        // стартуем в режиме навигации (без авто-фокуса)
+        blurInputHard();
         setSel(0);
 
         ui.bEnter.addEventListener('click', function () { focusInput(); }, true);
         ui.bUnlock.addEventListener('click', function () { submit(); }, true);
 
-        // ПК/телефон: Enter в поле = Unlock
+        // Enter в поле = submit (ПК/телефон)
         ui.inp.addEventListener('keydown', function (e) {
-            if (e.key === 'Enter') {
-                // не preventDefault — пусть ввод работает
+            if (e.key === 'Enter' || (e.keyCode || 0) === 13) {
                 submit();
             }
         }, true);
@@ -252,11 +263,17 @@
     function focusInput() {
         if (!ui.inp) return;
         try { ui.err && (ui.err.style.display = 'none'); } catch (_) { }
+        // ВАЖНО: перед фокусом ставим sel=0 (Enter)
+        setSel(0);
         try { ui.inp.focus(); } catch (_) { }
     }
 
     function submit() {
         if (!ui.inp) return;
+
+        // FIX ТВ: перед submit убираем фокус с input, чтобы OK не улетал в системный ввод
+        blurInputHard();
+
         var v = String(ui.inp.value || '').trim();
 
         sha256Base64(v, function (h) {
@@ -269,19 +286,15 @@
                 try { ui.err && (ui.err.style.display = 'block'); } catch (_) { }
                 try { ui.inp.value = ''; } catch (_) { }
                 setSel(0);
-                // НЕ фокусим обратно автоматически
-                try { ui.inp.blur(); } catch (_) { }
+                blurInputHard();
             }
         });
     }
 
     // =========================
-    // KEY GUARD (важно: ввод НЕ ломаем)
+    // KEY GUARD
     // =========================
     function isNavKeyCode(k) {
-        // up/down/left/right: 38/40/37/39, android tv: 19/20/21/22
-        // ok/enter: 13, dpad center: 23
-        // back: 27/8/461/10009
         return (
             k === 38 || k === 40 || k === 37 || k === 39 ||
             k === 19 || k === 20 || k === 21 || k === 22 ||
@@ -294,34 +307,40 @@
         if (!document.getElementById('msx_fake_lock')) return;
 
         var k = e.keyCode || 0;
+        var t = e.target;
 
-        // Если это НЕ навигационная клавиша и мы в input — даём печатать,
-        // но режем Lampa (stopImmediatePropagation).
-        if (!isNavKeyCode(k) && e.target && (e.target.id === 'msx_pw_inp' || e.target.tagName === 'INPUT')) {
+        var isInput = t && (t.id === 'msx_pw_inp' || t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.isContentEditable);
+
+        // Если печатаем в input — даём вводить символы, но не даём Lampa их видеть.
+        // Исключение: навигационные/OK — их обрабатываем сами.
+        if (isInput && !isNavKeyCode(k)) {
             e.stopImmediatePropagation();
             return;
         }
 
-        // Навигацию берём на себя и режем Lampa
+        // Всё навигационное/OK/стрелки — глушим Lampa и работаем мы
         e.preventDefault();
         e.stopImmediatePropagation();
 
-        // left/right (и 21/22) — переключение кнопки
+        // left/right (и 21/22) — переключение
         if (k === 37 || k === 21) { setSel(0); return; }
         if (k === 39 || k === 22) { setSel(1); return; }
 
-        // up/down — тоже переключение (на всякий)
+        // up/down — тоже переключение
         if (k === 38 || k === 19) { setSel(0); return; }
         if (k === 40 || k === 20) { setSel(1); return; }
 
         // OK/Enter
         if (k === 13 || k === 23) {
-            if (ui.sel === 0) focusInput();
-            else submit();
+            if (ui.sel === 0) {
+                focusInput();      // тут фокусим и вызываем системный ввод осознанно
+            } else {
+                submit();          // тут НЕ даём фокусу в input остаться
+            }
             return;
         }
 
-        // back — игнорируем (нельзя выйти из лок-экрана)
+        // back — игнор
         return;
     }
 
@@ -365,6 +384,7 @@
     // MAIN (твой код ниже без изменений)
     // =========================
     function MAIN() {
+
         // ВСТАВЬ СЮДА ТВОЙ ТЕКУЩИЙ КОД (как у тебя сейчас) БЕЗ ИЗМЕНЕНИЙ
         // <<< твой текущий MAIN без изменений >>>
         //=======================================================================-=============================================
