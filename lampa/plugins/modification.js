@@ -73,7 +73,7 @@
 
         "https://nb557.github.io/plugins/online_mod.js",
 
-        "https://skaztv.online/store.js",
+        // "https://skaztv.online/store.js",
         "https://skaztv.online/js/tricks.js",
 
         "https://aviamovie.github.io/surs.js",
