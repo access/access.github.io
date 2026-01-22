@@ -47,6 +47,8 @@
     // =========================================================================
     const PLUGINS = [
         "https://bdvburik.github.io/title.js",
+        "https://amikdn.github.io/buttons.js"
+        "https://bywolf88.github.io/lampa-plugins/interface_mod.js",
         // "http://skaz.tv/onlines.js",
         // "http://skaz.tv/vcdn.js",
         // "https://netfix.cc/netfix.js",
@@ -62,13 +64,12 @@
         // "https://bylampa.github.io/old_card_status.js",
         // "https://bylampa.github.io/backmenu.js",
         "https://bylampa.github.io/cub_off.js",
-        "https://bylampa.github.io/source.js",
         // "https://bylampa.github.io/addon.js",
 
-        "https://bywolf88.github.io/lampa-plugins/interface_mod.js",
 
         //sources...
         "https://tsynik.github.io/lampa/e.js",
+        "https://bylampa.github.io/source.js",
 
         //players
         "https://nb557.github.io/plugins/online_mod.js",
@@ -84,7 +85,6 @@
         // "https://amiv1.github.io/lampa/rating.js",
         "scripts/rating.js",
 
-        "https://amikdn.github.io/buttons.js"
     ];
 
     // =========================================================================
