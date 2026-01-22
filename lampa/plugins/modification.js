@@ -11,7 +11,7 @@
         "https://and7ey.github.io/lampa/head_filter.js",
         "https://andreyurl54.github.io/diesel5/tricks.js",
 
-        "https://bylampa.github.io/redirect.js",
+        // "https://bylampa.github.io/redirect.js",
         "https://bylampa.github.io/trailer_off.js",
         "https://bylampa.github.io/color_vote.js",
         "https://bylampa.github.io/seas_and_eps.js",
