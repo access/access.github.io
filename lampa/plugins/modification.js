@@ -7,7 +7,7 @@
     const AUTH_KEY = 'msx_fake_auth_ok_v2';
 
     // base64(SHA-256("blacklampa"))
-    const PASS_HASH_B64 = 'wFQx3u0cQq5P4f0uV8lVYkQ6kHq4zV9mO1VfJ9n8X1s=';
+    const PASS_HASH_B64 = 'OYSLjH1s/Uduag74P/8sT8zqtogR8n8RLrNt/6dEL08=';
 
     // =========================
     // STORAGE
@@ -23,7 +23,7 @@
     }
 
     // =========================
-    // SHA-256 base64 (crypto.subtle if possible, else tiny fallback)
+    // SHA-256 base64
     // =========================
     function btoaBytes(u8) {
         var s = '';
@@ -32,7 +32,6 @@
     }
 
     function utf8Bytes(str) {
-        // TV-friendly utf8 encoder (без TextEncoder)
         var out = [];
         for (var i = 0; i < str.length; i++) {
             var c = str.charCodeAt(i);
@@ -52,7 +51,6 @@
         return new Uint8Array(out);
     }
 
-    // tiny SHA-256 (fallback)
     function rotr(x, n) { return (x >>> n) | (x << (32 - n)); }
     function sha256_u8(bytes) {
         var K = [
@@ -79,7 +77,6 @@
         m.set(bytes, 0);
         m[l] = 0x80;
 
-        // length in bits (big endian)
         var p = total - 8;
         m[p + 0] = (bitLenHi >>> 24) & 0xff;
         m[p + 1] = (bitLenHi >>> 16) & 0xff;
@@ -132,7 +129,6 @@
     }
 
     function sha256Base64(str, cb) {
-        // async callback style (TV-friendly)
         try {
             if (window.crypto && crypto.subtle && window.TextEncoder) {
                 var enc = new TextEncoder().encode(str);
@@ -163,33 +159,21 @@
     }
 
     // =========================
-    // LOCK UI (overlay) - TV remote friendly
+    // UI
     // =========================
-    var ui = {
-        wrap: null,
-        inp: null,
-        btnInput: null,
-        btnUnlock: null,
-        err: null,
-        sel: 0 // 0=inputBtn, 1=unlockBtn
-    };
+    var ui = { wrap: null, inp: null, bEnter: null, bUnlock: null, err: null, sel: 0 };
 
     function setSel(n) {
         ui.sel = (n === 1) ? 1 : 0;
-        var a = ui.btnInput, b = ui.btnUnlock;
-        if (!a || !b) return;
+        if (!ui.bEnter || !ui.bUnlock) return;
 
-        if (ui.sel === 0) {
-            a.style.outline = '2px solid rgba(255,255,255,.65)';
-            a.style.background = 'rgba(255,255,255,.08)';
-            b.style.outline = 'none';
-            b.style.background = 'transparent';
-        } else {
-            b.style.outline = '2px solid rgba(255,255,255,.65)';
-            b.style.background = 'rgba(255,255,255,.08)';
-            a.style.outline = 'none';
-            a.style.background = 'transparent';
-        }
+        var a = ui.bEnter, b = ui.bUnlock;
+        a.style.outline = 'none'; a.style.background = 'transparent';
+        b.style.outline = 'none'; b.style.background = 'transparent';
+
+        var on = (ui.sel === 0) ? a : b;
+        on.style.outline = '2px solid rgba(255,255,255,.65)';
+        on.style.background = 'rgba(255,255,255,.08)';
     }
 
     function ensureOverlay() {
@@ -197,24 +181,17 @@
 
         var wrap = document.createElement('div');
         wrap.id = 'msx_fake_lock';
-        // inset не везде работает на ТВ → top/left/right/bottom
         wrap.style.cssText = [
-            'position:fixed',
-            'top:0', 'left:0', 'right:0', 'bottom:0',
+            'position:fixed', 'top:0', 'left:0', 'right:0', 'bottom:0',
             'z-index:2147483647',
             'background:rgba(0,0,0,.92)',
-            'display:flex',
-            'align-items:center',
-            'justify-content:center',
-            'padding:24px',
-            'box-sizing:border-box'
+            'display:flex', 'align-items:center', 'justify-content:center',
+            'padding:24px', 'box-sizing:border-box'
         ].join(';');
 
         var box = document.createElement('div');
-        // min() не везде работает на ТВ → max-width + width:100%
         box.style.cssText = [
-            'width:100%',
-            'max-width:520px',
+            'width:100%', 'max-width:520px',
             'border:1px solid rgba(255,255,255,.15)',
             'border-radius:16px',
             'padding:18px',
@@ -223,57 +200,59 @@
             'font:16px/1.35 sans-serif'
         ].join(';');
 
-        // без template literals (на некоторых ТВ ломается)
         box.innerHTML =
             '<div style="font-size:22px;margin-bottom:10px">Locked</div>' +
             '<div style="opacity:.8;margin-bottom:14px">Enter password</div>' +
-
-            '<input id="msx_pw_inp" type="password" placeholder="password" ' +
-            'autocomplete="off" autocapitalize="none" spellcheck="false" style="' +
+            '<input id="msx_pw_inp" type="password" placeholder="password" autocomplete="off" autocapitalize="none" spellcheck="false" style="' +
             'width:100%;padding:12px 14px;background:#111;' +
             'border:1px solid rgba(255,255,255,.18);border-radius:12px;' +
             'color:#fff;outline:none;box-sizing:border-box;' +
             '"/>' +
-
             '<div style="margin-top:12px;display:flex;gap:10px">' +
-            '<div id="msx_pw_btn_input" style="' +
+            '<div id="msx_btn_enter" style="' +
             'flex:1;display:flex;align-items:center;justify-content:center;' +
             'padding:12px 14px;border:1px solid rgba(255,255,255,.22);' +
             'border-radius:12px;user-select:none;' +
             '">Enter</div>' +
-            '<div id="msx_pw_btn_unlock" style="' +
+            '<div id="msx_btn_unlock" style="' +
             'flex:1;display:flex;align-items:center;justify-content:center;' +
             'padding:12px 14px;border:1px solid rgba(255,255,255,.22);' +
             'border-radius:12px;user-select:none;' +
             '">Unlock</div>' +
             '</div>' +
-
             '<div id="msx_pw_err" style="margin-top:10px;opacity:.85;display:none;color:#ff6b6b">Wrong password</div>' +
-
-            '<div style="margin-top:10px;opacity:.55;font-size:12px">TV: use arrows (↑↓) and OK</div>';
+            '<div style="margin-top:10px;opacity:.55;font-size:12px">TV: use arrows (←→ / ↑↓) and OK</div>';
 
         wrap.appendChild(box);
         document.body.appendChild(wrap);
 
         ui.wrap = wrap;
         ui.inp = box.querySelector('#msx_pw_inp');
-        ui.btnInput = box.querySelector('#msx_pw_btn_input');
-        ui.btnUnlock = box.querySelector('#msx_pw_btn_unlock');
+        ui.bEnter = box.querySelector('#msx_btn_enter');
+        ui.bUnlock = box.querySelector('#msx_btn_unlock');
         ui.err = box.querySelector('#msx_pw_err');
 
-        // старт: выделяем кнопку Enter (чтобы попап точно был ВИДЕН, а не сразу системное окно)
+        // ВАЖНО: НЕ фокусим поле автоматически (чтобы не вызывать системное окно само)
+        try { ui.inp.blur(); } catch (_) { }
+
         setSel(0);
 
-        // клики (ПК/телефон)
-        ui.btnInput.addEventListener('click', function () { focusInput(); }, true);
-        ui.btnUnlock.addEventListener('click', function () { submit(); }, true);
+        ui.bEnter.addEventListener('click', function () { focusInput(); }, true);
+        ui.bUnlock.addEventListener('click', function () { submit(); }, true);
+
+        // ПК/телефон: Enter в поле = Unlock
+        ui.inp.addEventListener('keydown', function (e) {
+            if (e.key === 'Enter') {
+                // не preventDefault — пусть ввод работает
+                submit();
+            }
+        }, true);
     }
 
     function focusInput() {
         if (!ui.inp) return;
         try { ui.err && (ui.err.style.display = 'none'); } catch (_) { }
         try { ui.inp.focus(); } catch (_) { }
-        // не держим фокус постоянно — только по явному действию пользователя
     }
 
     function submit() {
@@ -290,38 +269,60 @@
                 try { ui.err && (ui.err.style.display = 'block'); } catch (_) { }
                 try { ui.inp.value = ''; } catch (_) { }
                 setSel(0);
+                // НЕ фокусим обратно автоматически
+                try { ui.inp.blur(); } catch (_) { }
             }
         });
     }
 
     // =========================
-    // KEY GUARD: перехват пульта, управление попапом
+    // KEY GUARD (важно: ввод НЕ ломаем)
     // =========================
+    function isNavKeyCode(k) {
+        // up/down/left/right: 38/40/37/39, android tv: 19/20/21/22
+        // ok/enter: 13, dpad center: 23
+        // back: 27/8/461/10009
+        return (
+            k === 38 || k === 40 || k === 37 || k === 39 ||
+            k === 19 || k === 20 || k === 21 || k === 22 ||
+            k === 13 || k === 23 ||
+            k === 27 || k === 8 || k === 461 || k === 10009
+        );
+    }
+
     function keyGuardHandler(e) {
         if (!document.getElementById('msx_fake_lock')) return;
 
-        // режем Lampa всегда, иначе она утащит фокус/события
+        var k = e.keyCode || 0;
+
+        // Если это НЕ навигационная клавиша и мы в input — даём печатать,
+        // но режем Lampa (stopImmediatePropagation).
+        if (!isNavKeyCode(k) && e.target && (e.target.id === 'msx_pw_inp' || e.target.tagName === 'INPUT')) {
+            e.stopImmediatePropagation();
+            return;
+        }
+
+        // Навигацию берём на себя и режем Lampa
         e.preventDefault();
         e.stopImmediatePropagation();
 
-        var k = e.keyCode || 0;
+        // left/right (и 21/22) — переключение кнопки
+        if (k === 37 || k === 21) { setSel(0); return; }
+        if (k === 39 || k === 22) { setSel(1); return; }
 
-        // ↑ / ↓ (пульт)
-        if (k === 38) { setSel(0); return; }
-        if (k === 40) { setSel(1); return; }
+        // up/down — тоже переключение (на всякий)
+        if (k === 38 || k === 19) { setSel(0); return; }
+        if (k === 40 || k === 20) { setSel(1); return; }
 
         // OK/Enter
-        if (k === 13) {
+        if (k === 13 || k === 23) {
             if (ui.sel === 0) focusInput();
             else submit();
             return;
         }
 
-        // Back (часто 461 / 10009 / Escape)
-        if (k === 27 || k === 461 || k === 10009) {
-            // игнорируем, чтобы нельзя было “выйти” из лок-экрана
-            return;
-        }
+        // back — игнорируем (нельзя выйти из лок-экрана)
+        return;
     }
 
     function attachKeyGuard() {
@@ -337,7 +338,7 @@
     }
 
     // =========================
-    // STABILITY: если DOM пересоздали — возвращаем overlay
+    // STABILITY
     // =========================
     function watchOverlay() {
         if (rescueTimer) return;
@@ -352,15 +353,8 @@
     // BOOT
     // =========================
     function BOOT() {
-        if (getAuthed()) {
-            startMainOnce();
-            return;
-        }
-
-        if (!document.body) {
-            setTimeout(BOOT, 50);
-            return;
-        }
+        if (getAuthed()) { startMainOnce(); return; }
+        if (!document.body) { setTimeout(BOOT, 50); return; }
 
         attachKeyGuard();
         ensureOverlay();
@@ -368,9 +362,10 @@
     }
 
     // =========================
-    // MAIN: ниже оставляешь ТВОЙ код как есть, без правок
+    // MAIN (твой код ниже без изменений)
     // =========================
     function MAIN() {
+        // ВСТАВЬ СЮДА ТВОЙ ТЕКУЩИЙ КОД (как у тебя сейчас) БЕЗ ИЗМЕНЕНИЙ
         // <<< твой текущий MAIN без изменений >>>
         //=======================================================================-=============================================
 
