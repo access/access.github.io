@@ -37,8 +37,8 @@
 
     // ===== popup (10s) =========================================================
 
-    const POPUP_MS = 10_000;
-    const MAX_LINES = 6;
+    const POPUP_MS = 100_000;
+    const MAX_LINES = 100;
 
     let popupEl = null;
     let popupTimer = null;
