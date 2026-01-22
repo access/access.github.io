@@ -9,6 +9,7 @@
         "https://tsynik.github.io/lampa/e.js",
         //"https://and7ey.github.io/lampa/stats.js",
         "https://and7ey.github.io/lampa/head_filter.js",
+        "https://and7ey.github.io/lampa/noshots.js",
         //"https://andreyurl54.github.io/diesel5/tricks.js",
 
         // "https://bylampa.github.io/redirect.js",
