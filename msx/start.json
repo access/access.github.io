@@ -14,18 +14,19 @@
           "layout": "5,0,5,5",
           "text": ""
         },
+
         {
           "type": "control",
           "layout": "0,0,5,1",
           "image": "https://access.github.io/msx/msx-logo.png",
-          "label": "BlackLampa",
-          "action": "link:https://access.github.io/lampa",
+          "label": "BlackLampa (LOG OFF)",
+          "action": "link:https://access.github.io/lampa/?aplog=0",
           "selection": {
             "important": true,
             "action": "update:content:description",
             "data": {
               "text": [
-                "{txt:msx-white: BlackLampa} — запуск последней Lampa + патч blacklist."
+                "{txt:msx-white: BlackLampa} — aplog=0 (лог полностью выключен)."
               ]
             }
           }
@@ -33,6 +34,39 @@
         {
           "type": "control",
           "layout": "0,1,5,1",
+          "image": "https://access.github.io/msx/msx-logo.png",
+          "label": "BlackLampa (BOOT LOG)",
+          "action": "link:https://access.github.io/lampa/?aplog=1",
+          "selection": {
+            "important": true,
+            "action": "update:content:description",
+            "data": {
+              "text": [
+                "{txt:msx-white: BlackLampa} — aplog=1 (лог только до AutoPlugin done, дальше отключает event hooks)."
+              ]
+            }
+          }
+        },
+        {
+          "type": "control",
+          "layout": "0,2,5,1",
+          "image": "https://access.github.io/msx/msx-logo.png",
+          "label": "BlackLampa (FULL LOG)",
+          "action": "link:https://access.github.io/lampa/?aplog=2",
+          "selection": {
+            "important": true,
+            "action": "update:content:description",
+            "data": {
+              "text": [
+                "{txt:msx-white: BlackLampa} — aplog=2 (полный лог всегда)."
+              ]
+            }
+          }
+        },
+
+        {
+          "type": "control",
+          "layout": "0,3,5,1",
           "image": "https://access.github.io/msx/msx-logo.old.png",
           "label": "BlackLampaWrapper",
           "action": "link:https://access.github.io/msx/lampa-wrapper.html",
@@ -48,7 +82,7 @@
         },
         {
           "type": "control",
-          "layout": "0,2,5,1",
+          "layout": "0,4,5,1",
           "image": "https://access.github.io/msx/v4.msxplayer.ru.png",
           "label": "Yumata",
           "action": "link:https://yumata.github.io/lampa",
