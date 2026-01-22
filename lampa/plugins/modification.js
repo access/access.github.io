@@ -23,8 +23,8 @@
         // "https://bdvburik.github.io/title.js",
         "https://bywolf88.github.io/lampa-plugins/interface_mod.js",
 
-        // "https://bwa.to/rc",
-        // "https://bwa.to/cloud.js",
+        "https://bwa.to/rc",
+        "https://bwa.to/cloud.js",
 
         "https://nb557.github.io/plugins/online_mod.js",
 
