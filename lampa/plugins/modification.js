@@ -1,5 +1,149 @@
 (function () {
     'use strict';
+    // ============================================================================
+    // ACCESS INIT
+    // ============================================================================
+
+    // ====== FAKE PASSWORD LOCK (simple overlay) ======
+    (function () {
+        'use strict';
+
+        const AUTH_KEY = 'msx_fake_auth_ok_v1';
+        const PASS = 'blacklampa'; // <-- твой пароль
+
+        function getAuthed() {
+            try { return !!Lampa.Storage.get(AUTH_KEY); } catch (e) { return false; }
+        }
+        function setAuthed(v) {
+            try { Lampa.Storage.set(AUTH_KEY, v ? 1 : 0); } catch (e) {}
+        }
+
+        function mountLockOverlay() {
+            // уже стоит
+            if (document.getElementById('msx_fake_lock')) return;
+
+            const wrap = document.createElement('div');
+            wrap.id = 'msx_fake_lock';
+            wrap.style.cssText = [
+                'position:fixed',
+     'inset:0',
+     'z-index:2147483647',
+     'background:rgba(0,0,0,.92)',
+     'display:flex',
+     'align-items:center',
+     'justify-content:center',
+     'padding:24px',
+     'box-sizing:border-box'
+            ].join(';');
+
+            const box = document.createElement('div');
+            box.style.cssText = [
+                'width:min(520px, 100%)',
+     'border:1px solid rgba(255,255,255,.15)',
+     'border-radius:16px',
+     'padding:18px',
+     'box-sizing:border-box',
+     'color:#fff',
+     'font:16px/1.35 sans-serif'
+            ].join(';');
+
+            box.innerHTML = `
+            <div style="font-size:22px;margin-bottom:10px">Locked</div>
+            <div style="opacity:.8;margin-bottom:14px">Enter password</div>
+
+            <input id="msx_pw_inp" type="password" placeholder="password" style="
+            width:100%;
+            padding:12px 14px;
+            background:#111;
+            border:1px solid rgba(255,255,255,.18);
+            border-radius:12px;
+            color:#fff;
+            outline:none;
+            box-sizing:border-box;
+            "/>
+
+            <div id="msx_pw_btn" tabindex="0" style="
+            margin-top:12px;
+            display:flex;
+            align-items:center;
+            justify-content:center;
+            padding:12px 14px;
+            border:1px solid rgba(255,255,255,.22);
+            border-radius:12px;
+            user-select:none;
+            cursor:pointer;
+            ">Unlock</div>
+
+            <div id="msx_pw_err" style="margin-top:10px;opacity:.85;display:none;color:#ff6b6b">
+            Wrong password
+            </div>
+            `;
+
+            wrap.appendChild(box);
+            document.body.appendChild(wrap);
+
+            const inp = box.querySelector('#msx_pw_inp');
+            const btn = box.querySelector('#msx_pw_btn');
+            const err = box.querySelector('#msx_pw_err');
+
+            const submit = () => {
+                const v = (inp.value || '').trim();
+                if (v === PASS) {
+                    setAuthed(true);
+                    wrap.remove();
+                } else {
+                    err.style.display = 'block';
+                    inp.value = '';
+                    inp.focus();
+                }
+            };
+
+            // максимально “пробивные” события
+            btn.addEventListener('click', submit, true);
+            btn.addEventListener('pointerup', submit, true);
+            btn.addEventListener('touchend', (e) => { e.preventDefault(); submit(); }, true);
+
+            inp.addEventListener('keydown', (e) => {
+                if (e.key === 'Enter') submit();
+            }, true);
+
+                // На ТВ/пульте: Enter/OK часто приходит как Enter
+                document.addEventListener('keydown', (e) => {
+                    if (!document.getElementById('msx_fake_lock')) return;
+                    if (e.key === 'Enter') submit();
+                }, true);
+
+                    setTimeout(() => inp.focus(), 50);
+        }
+
+        function startLock() {
+            // уже авторизован — не мешаем
+            if (getAuthed()) return;
+
+            // если body ещё нет — подождём
+            if (!document.body) return setTimeout(startLock, 50);
+
+            mountLockOverlay();
+        }
+
+        // Запуск: сразу + несколько ретраев (чтобы не зависеть от событий Lampa)
+        startLock();
+        setTimeout(startLock, 200);
+        setTimeout(startLock, 800);
+
+        // “logout” для себя: Ctrl+Alt+L
+        document.addEventListener('keydown', (e) => {
+            if (e.ctrlKey && e.altKey && (e.key || '').toLowerCase() === 'l') {
+                setAuthed(false);
+                location.reload();
+            }
+        }, true);
+
+    })();
+
+
+    // ============================================================================
+
 
     // ============================================================================
     // LOG MODES (0/1/2)
@@ -759,179 +903,3 @@ start();
 })();
 
 
-(function () {
-    'use strict';
-
-    // ====== FAKE LOCK (client-side) ======
-    // ВАЖНО: это НЕ защита. Любой, кто откроет DevTools, может обойти/вытащить.
-    // Но как "заглушка от случайных" — норм.
-
-    const AUTH_KEY = 'msx_fake_auth_ok_v1';
-    const PASS_HASH_B64 = 'wFQx3u0cQq5P4f0uV8lVYkQ6kHq4zV9mO1VfJ9n8X1s=';
-    // Это base64(SHA-256("blacklampa"))
-    // Если захочешь другой пароль — скажи, дам новый хэш.
-
-    function b64ToBytes(b64) {
-        const bin = atob(b64);
-        const bytes = new Uint8Array(bin.length);
-        for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
-        return bytes;
-    }
-
-    async function sha256Base64(str) {
-        const enc = new TextEncoder().encode(str);
-        const buf = await crypto.subtle.digest('SHA-256', enc);
-        const bytes = new Uint8Array(buf);
-        let bin = '';
-        for (let i = 0; i < bytes.length; i++) bin += String.fromCharCode(bytes[i]);
-        return btoa(bin);
-    }
-
-    function isAuthed() {
-        try { return !!Lampa.Storage.get(AUTH_KEY); } catch (e) { return false; }
-    }
-
-    function setAuthed(v) {
-        try {
-            if (v) Lampa.Storage.set(AUTH_KEY, 1);
-            else Lampa.Storage.set(AUTH_KEY, 0);
-        } catch (e) {}
-    }
-
-    function blockUI() {
-        // Простейшая “шторка” поверх всего
-        const el = document.createElement('div');
-        el.id = 'msx_fake_lock';
-        el.style.cssText = [
-            'position:fixed',
-            'inset:0',
-            'z-index:999999',
-            'background:#000',
-            'display:flex',
-            'align-items:center',
-            'justify-content:center',
-            'flex-direction:column',
-            'color:#fff',
-            'font:16px/1.4 sans-serif',
-            'text-align:center',
-            'padding:24px'
-        ].join(';');
-        el.innerHTML = `
-        <div style="max-width:520px">
-        <div style="font-size:22px;margin-bottom:10px">Locked</div>
-        <div style="opacity:.8;margin-bottom:18px">Enter password to continue</div>
-        <div id="msx_fake_lock_btn" style="
-        display:inline-block;
-        padding:12px 18px;
-        border:1px solid rgba(255,255,255,.25);
-        border-radius:10px;
-        cursor:pointer;
-        user-select:none;
-        ">Unlock</div>
-        </div>
-        `;
-        document.body.appendChild(el);
-        return el;
-    }
-
-    function unlockUI(el) {
-        if (el && el.parentNode) el.parentNode.removeChild(el);
-    }
-
-    function askPassword(onOk) {
-        const html = `
-        <div style="padding:10px 0">
-        <input id="msx_pw_inp" type="password" placeholder="password" style="
-        width:100%;
-        padding:12px;
-        background:#1a1a1a;
-        border:1px solid rgba(255,255,255,.15);
-        border-radius:10px;
-        color:#fff;
-        outline:none;
-        box-sizing:border-box;
-        " />
-        <div style="opacity:.7;margin-top:10px;font-size:13px">
-        hint: set in modification.js
-        </div>
-        </div>
-        `;
-
-        Lampa.Modal.open({
-            title: 'Access',
-            html: html,
-            size: 'small',
-            onBack: function () {
-                // если закрыли — остаёмся залоченными
-            },
-            onSelect: function () {}
-        });
-
-        // фокус на поле
-        setTimeout(() => {
-            const inp = document.getElementById('msx_pw_inp');
-            if (!inp) return;
-
-            inp.focus();
-
-            const trySubmit = async () => {
-                const val = (inp.value || '').trim();
-                if (!val) return;
-
-                const h = await sha256Base64(val);
-                if (h === PASS_HASH_B64) {
-                    setAuthed(true);
-                    Lampa.Modal.close();
-                    onOk && onOk();
-                } else {
-                    inp.value = '';
-                    Lampa.Noty && Lampa.Noty.show('Wrong password');
-                }
-            };
-
-            inp.addEventListener('keydown', (e) => {
-                if (e.key === 'Enter') trySubmit();
-            });
-
-                // ОК на пульте часто = Enter, но на всякий:
-                // можно повесить ещё “клик” по модалке не трогаю, чтобы не ломать UX.
-        }, 50);
-    }
-
-    function installFakeLock() {
-        if (isAuthed()) return;
-
-        const overlay = blockUI();
-        const btn = overlay.querySelector('#msx_fake_lock_btn');
-
-        const doUnlock = () => askPassword(() => unlockUI(overlay));
-
-        btn.addEventListener('click', doUnlock);
-
-        // На TV/пульте часто нет клика мыши — поэтому:
-        // реагируем на OK/Enter когда шторка активна
-        document.addEventListener('keydown', (e) => {
-            if (!document.getElementById('msx_fake_lock')) return;
-            if (e.key === 'Enter') doUnlock();
-        }, true);
-    }
-
-    // Запуск после загрузки Lampa (чтобы Modal/Storage точно были)
-    if (window.Lampa && Lampa.Listener) {
-        Lampa.Listener.follow('app', function (e) {
-            if (e.type === 'start') installFakeLock();
-        });
-    } else {
-        // fallback
-        window.addEventListener('load', installFakeLock);
-    }
-
-    // ====== OPTIONAL: logout combo (для себя) ======
-    // Пример: Ctrl+Alt+L -> сброс "входа"
-    document.addEventListener('keydown', (e) => {
-        if (e.ctrlKey && e.altKey && (e.key || '').toLowerCase() === 'l') {
-            setAuthed(false);
-            location.reload();
-        }
-    });
-})();
