@@ -49,6 +49,7 @@
         "https://bdvburik.github.io/title.js",
         "https://amikdn.github.io/buttons.js"
         "https://bywolf88.github.io/lampa-plugins/interface_mod.js",
+        "scripts/rating.js",
         // "http://skaz.tv/onlines.js",
         // "http://skaz.tv/vcdn.js",
         // "https://netfix.cc/netfix.js",
@@ -83,7 +84,6 @@
 
         "https://aviamovie.github.io/surs.js",
         // "https://amiv1.github.io/lampa/rating.js",
-        "scripts/rating.js",
 
     ];
 
