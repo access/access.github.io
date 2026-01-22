@@ -5,12 +5,7 @@
     // CONFIG
     // =========================
     const AUTH_KEY = 'msx_fake_auth_ok_v2';
-
-    // Для ПК/телефона (буквы можно ввести)
     const PASS_TEXT = 'blacklampa';
-
-    // Для ТВ (ввести цифры пультом проще/реальнее)
-    const PASS_PIN  = '1977'; // <-- поменяй на свой PIN
 
     // =========================
     // STORAGE
@@ -23,6 +18,28 @@
     function setAuthed(v) {
         try { window.Lampa && Lampa.Storage && Lampa.Storage.set(AUTH_KEY, v ? 1 : 0); }
         catch (e) {}
+    }
+
+    // =========================
+    // INTERNAL GUARDS
+    // =========================
+    let mainStarted = false;
+    let keyGuardInstalled = false;
+    let focusTimer = null;
+    let pollTimer = null;
+    let rescueTimer = null;
+    let lastVal = '';
+
+    function startMainOnce() {
+        if (mainStarted) return;
+        mainStarted = true;
+        MAIN();
+    }
+
+    function stopLockLoops() {
+        if (focusTimer) { clearInterval(focusTimer); focusTimer = null; }
+        if (pollTimer)  { clearInterval(pollTimer);  pollTimer = null; }
+        if (rescueTimer){ clearInterval(rescueTimer);rescueTimer = null; }
     }
 
     // =========================
@@ -58,9 +75,10 @@
 
         box.innerHTML = `
         <div style="font-size:22px;margin-bottom:10px">Locked</div>
-        <div style="opacity:.8;margin-bottom:14px">Enter password / PIN</div>
+        <div style="opacity:.8;margin-bottom:14px">Enter password</div>
 
-        <input id="msx_pw_inp" type="password" placeholder="password or pin" autocomplete="off" autocapitalize="none" spellcheck="false" style="
+        <input id="msx_pw_inp" type="password" placeholder="password"
+        autocomplete="off" autocapitalize="none" spellcheck="false" inputmode="text" style="
         width:100%;
         padding:12px 14px;
         background:#111;
@@ -86,10 +104,6 @@
         <div id="msx_pw_err" style="margin-top:10px;opacity:.85;display:none;color:#ff6b6b">
         Wrong password
         </div>
-
-        <div style="margin-top:10px;opacity:.55;font-size:12px">
-        Tip: on TV use PIN
-        </div>
         `;
 
         wrap.appendChild(box);
@@ -101,58 +115,95 @@
 
         const submit = () => {
             const v = (inp.value || '').trim();
-            const ok = (v === PASS_TEXT) || (v === PASS_PIN);
 
-            if (ok) {
+            if (v === PASS_TEXT) {
                 setAuthed(true);
-                wrap.remove();
+
+                // IMPORTANT: сначала убираем все lock-циклы, потом overlay, потом main
+                stopLockLoops();
                 detachKeyGuard();
-                MAIN(); // <-- запускаем основной код ТОЛЬКО после unlock
+
+                try { wrap.remove(); } catch (_) {}
+
+                startMainOnce();
             } else {
                 err.style.display = 'block';
                 inp.value = '';
-                inp.focus();
+                lastVal = '';
+                try { inp.focus(); } catch (_) {}
             }
         };
 
-        // клики/тач
+        // клики/тач (на ПК/мобиле)
         btn.addEventListener('click', submit, true);
         btn.addEventListener('pointerup', submit, true);
         btn.addEventListener('touchend', (e) => { e.preventDefault(); submit(); }, true);
 
-        // enter в поле
+        // На ПК/телефоне Enter часто работает
         inp.addEventListener('keydown', (e) => {
             if (e.key === 'Enter') submit();
         }, true);
 
-            setTimeout(() => inp.focus(), 50);
+            // ТВ: системное окно может менять value без keydown → ловим изменения
+            inp.addEventListener('input', () => {
+                // не спамим, но даём шанс сразу
+                if ((inp.value || '') !== lastVal) lastVal = inp.value || '';
+            }, true);
+
+                // ФОКУС-ЛУП: на ТВ постоянно возвращаем фокус в input,
+                // чтобы системная клавиатура/диалог писали именно в него
+                if (!focusTimer) {
+                    focusTimer = setInterval(() => {
+                        if (getAuthed()) return;
+                        const lock = document.getElementById('msx_fake_lock');
+                        if (!lock) return;
+                        const i = document.getElementById('msx_pw_inp');
+                        if (!i) return;
+                        if (document.activeElement !== i) {
+                            try { i.focus(); } catch (_) {}
+                        }
+                    }, 250);
+                }
+
+                // POLL-LOOP: если значение поменялось (после системного ввода) — пробуем submit
+                if (!pollTimer) {
+                    pollTimer = setInterval(() => {
+                        if (getAuthed()) return;
+                        const i = document.getElementById('msx_pw_inp');
+                        if (!i) return;
+                        const v = (i.value || '');
+                        if (v && v !== lastVal) {
+                            lastVal = v;
+                            // Не ждём Enter — сразу проверяем
+                            submit();
+                        }
+                    }, 200);
+                }
+
+                // первичный фокус
+                setTimeout(() => { try { inp.focus(); } catch (_) {} }, 50);
     }
 
     // =========================
     // KEY GUARD: режем Lampa-обработчики
     // =========================
-    let keyGuardInstalled = false;
-
     function keyGuardHandler(e) {
-        // если lock не активен — не мешаем
         if (!document.getElementById('msx_fake_lock')) return;
 
-        // ВАЖНО: даём input'у получать символы,
-        // но НЕ даём Lampa видеть эти события.
         const t = e.target;
         const isInput = t && (t.id === 'msx_pw_inp' || t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.isContentEditable);
 
         if (isInput) {
-            // не трогаем default, только отрезаем всплытие/обработчики ниже
+            // даём input жить, но режем Lampa
             e.stopImmediatePropagation();
             return;
         }
 
-        // Для всего остального — полностью глушим, чтобы Lampa не “проглатывала” UI/фокус
+        // режем всё остальное
         e.preventDefault();
         e.stopImmediatePropagation();
 
-        // Для пульта: Enter пытаемся сабмитнуть
+        // если всё-таки прилетает Enter — кликаем Unlock
         if (e.key === 'Enter') {
             const btn = document.getElementById('msx_pw_btn');
             btn && btn.click();
@@ -162,8 +213,6 @@
     function attachKeyGuard() {
         if (keyGuardInstalled) return;
         keyGuardInstalled = true;
-
-        // capture=true — чтобы перехватить раньше Lampa
         window.addEventListener('keydown', keyGuardHandler, true);
         window.addEventListener('keyup', keyGuardHandler, true);
         window.addEventListener('keypress', keyGuardHandler, true);
@@ -172,7 +221,6 @@
     function detachKeyGuard() {
         if (!keyGuardInstalled) return;
         keyGuardInstalled = false;
-
         window.removeEventListener('keydown', keyGuardHandler, true);
         window.removeEventListener('keyup', keyGuardHandler, true);
         window.removeEventListener('keypress', keyGuardHandler, true);
@@ -189,6 +237,15 @@
         });
 
             obs.observe(document.documentElement, { childList: true, subtree: true });
+
+            // ТВ: иногда DOM меняется “мимо” observer — страховка
+            if (!rescueTimer) {
+                rescueTimer = setInterval(() => {
+                    if (getAuthed()) return;
+                    if (!document.body) return;
+                    if (!document.getElementById('msx_fake_lock')) ensureOverlay();
+                }, 500);
+            }
     }
 
     // =========================
@@ -196,11 +253,10 @@
     // =========================
     function BOOT() {
         if (getAuthed()) {
-            MAIN();
+            startMainOnce();
             return;
         }
 
-        // ждём body
         if (!document.body) {
             setTimeout(BOOT, 50);
             return;
@@ -212,13 +268,12 @@
     }
 
     // =========================
-    // MAIN: СЮДА ВСТАВЬ ВЕСЬ ТВОЙ ТЕКУЩИЙ modification.js
+    // MAIN: твой код как есть
     // =========================
     function MAIN() {
-        // !!! ВСТАВЬ СЮДА ВЕСЬ ТВОЙ ТЕКУЩИЙ КОД modification.js БЕЗ ИЗМЕНЕНИЙ !!!
-        // Прямо целиком.
+        //=================================================================================
 
-//=================================================================================
+
 
 (function () {
     'use strict';
@@ -981,7 +1036,7 @@ start();
 })();
 
 
-//================================================================
+//=================================================================================
 }
 
 BOOT();
