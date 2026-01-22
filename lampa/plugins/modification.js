@@ -1,7 +1,50 @@
 (function () {
     'use strict';
 
+    // =========================================================================
+    // LOG MODES (3 режима)
+    // 0 = OFF            -> вообще без логов/попапа/ивентов/хуков
+    // 1 = BOOT-ONLY      -> лог только до "AutoPlugin done", потом отключаем слежение (events/hooks)
+    // 2 = FULL           -> лог всегда (как сейчас)
+    //
+    // Можно переключать так:
+    //   1) константой LOG_MODE_DEFAULT
+    //   2) через URL:  ?aplog=0|1|2
+    //   3) через localStorage: localStorage.setItem('aplog','0|1|2')
+    //
+    // Приоритет: URL -> localStorage -> default
+    // =========================================================================
+    const LOG_MODE_DEFAULT = 1;
+
+    function getLogMode() {
+        try {
+            // URL param: aplog=0|1|2
+            try {
+                const u = new URL(location.href);
+                const qp = u.searchParams && u.searchParams.get ? u.searchParams.get('aplog') : null;
+                if (qp === '0' || qp === '1' || qp === '2') return parseInt(qp, 10);
+            } catch (_) {}
+
+            // localStorage: aplog=0|1|2
+            try {
+                const ls = window.localStorage && window.localStorage.getItem ? window.localStorage.getItem('aplog') : null;
+                if (ls === '0' || ls === '1' || ls === '2') return parseInt(ls, 10);
+            } catch (_) {}
+
+            return LOG_MODE_DEFAULT;
+        } catch (_) {
+            return LOG_MODE_DEFAULT;
+        }
+    }
+
+    const LOG_MODE = getLogMode();
+    const LOG_OFF = (LOG_MODE === 0);
+    const LOG_BOOT_ONLY = (LOG_MODE === 1);
+    const LOG_FULL = (LOG_MODE === 2);
+
+    // =========================================================================
     // список автоплагинов (НЕ УДАЛЯЮ закомментированные — оставляю как есть)
+    // =========================================================================
     const PLUGINS = [
         // "http://skaz.tv/onlines.js",
         // "http://skaz.tv/vcdn.js",
@@ -39,49 +82,41 @@
         "https://amikdn.github.io/buttons.js"
     ];
 
-
-    // ===== popup ===============================================================
-
-    // ВАЖНО ДЛЯ ТВ: никаких numeric separators (20_000) — на старых движках это SyntaxError и весь скрипт не запускается.
+    // =========================================================================
+    // popup (только если LOG_MODE != 0)
+    // =========================================================================
     const POPUP_MS = 20000;
     const MAX_LINES = 120;
 
     let popupEl = null;
     let popupTimer = null;
 
-    // ВАЖНО: вместо полного re-render на каждую строку (что убивает ТВ),
-    // делаем инкрементальный append + редкий rebuild.
-    const popupQueue = []; // элементы: { line: string, tag: string, key: string, ts: number, count?: number }
+    const popupQueue = []; // { line, tag, key, ts, count }
     let popupBodyEl = null;
-    let renderedCount = 0; // сколько строк реально уже отрисовано в DOM
+    let renderedCount = 0;
 
-    // Цвета статусов
     const TAG_STYLE = {
-        'ERR': { color: '#ff4d4f' }, // red
-        'WRN': { color: '#ffa940' }, // orange
-        'OK ': { color: '#52c41a' }, // green
-        'INF': { color: '#40a9ff' }, // blue
-        'DBG': { color: '#8c8c8c' }  // gray
+        'ERR': { color: '#ff4d4f' },
+        'WRN': { color: '#ffa940' },
+        'OK ': { color: '#52c41a' },
+        'INF': { color: '#40a9ff' },
+        'DBG': { color: '#8c8c8c' }
     };
 
-    // IMPORTANT: фикс "прыгающего" шрифта/лейаута + совместимость
     const POPUP_FONT = '12px/1.35 Courier, "Courier New", monospace';
 
-    // гарантированно не валим рантайм, даже если браузер на ТВ капризный
     function safe(fn) { try { return fn(); } catch (_) { return null; } }
 
     function ensurePopup() {
+        if (LOG_OFF) return null;
         if (popupEl) return popupEl;
-
-        // если body ещё нет — не создаём, просто подождём (лог в очередь уже попадёт)
         if (!document || !document.body) return null;
 
         const el = document.createElement('div');
         el.id = '__autoplugin_popup';
         el.style.cssText = [
-            'all:initial',              // сбросить наследование стилей страницы
-            'unicode-bidi:plaintext',   // чтобы строки не ломались RTL/LTR
-
+            'all:initial',
+            'unicode-bidi:plaintext',
             'position:fixed',
             'isolation:isolate',
             'top:12px',
@@ -90,23 +125,21 @@
             'bottom:12px',
             'z-index:2147483647',
             'background:rgba(0,0,0,0.44)',
-            'color:#fff',
-            'border-radius:12px',
-            'padding:10px 12px',
-            'box-sizing:border-box',
-            'font:' + POPUP_FONT,
-            'font-weight:500',                 // одинаковый везде (не прыгает)
-            'font-variant-ligatures:none',
-            'letter-spacing:0',
-            '-webkit-font-smoothing:antialiased',
-            'text-rendering:optimizeSpeed',
-            'pointer-events:none',
-            'white-space:pre-wrap',
-            'word-break:break-word',
-            'overflow:auto',
-            'box-shadow:0 10px 30px rgba(0,0,0,0.25)'
-            // scrollbar-gutter НЕ везде поддерживается; добавлять можно, но не критично.
-            // 'scrollbar-gutter:stable both-edges'
+ 'color:#fff',
+ 'border-radius:12px',
+ 'padding:10px 12px',
+ 'box-sizing:border-box',
+ 'font:' + POPUP_FONT,
+ 'font-weight:500',
+ 'font-variant-ligatures:none',
+ 'letter-spacing:0',
+ '-webkit-font-smoothing:antialiased',
+ 'text-rendering:optimizeSpeed',
+ 'pointer-events:none',
+ 'white-space:pre-wrap',
+ 'word-break:break-word',
+ 'overflow:auto',
+ 'box-shadow:0 10px 30px rgba(0,0,0,0.25)'
         ].join(';');
 
         const title = document.createElement('div');
@@ -117,7 +150,7 @@
             'margin-bottom:6px',
             'opacity:.95'
         ].join(';');
-        title.textContent = 'AutoPlugin log';
+        title.textContent = 'AutoPlugin log (mode=' + String(LOG_MODE) + ')';
 
         const body = document.createElement('div');
         body.id = '__autoplugin_popup_body';
@@ -130,7 +163,6 @@
         popupBodyEl = body;
         renderedCount = 0;
 
-        // если что-то уже накопилось — дорисуем батчем (не full rebuild на каждый push)
         safe(function () { schedulePopupFlush(); });
         return el;
     }
@@ -148,35 +180,26 @@
 
     function parseTagFromLine(line) {
         try {
-            const m = String(line).match(/^\[[^\]]+\]\s(.{3})\s/); // "ERR"/"WRN"/"OK "/"INF"/"DBG"
+            const m = String(line).match(/^\[[^\]]+\]\s(.{3})\s/);
             return m ? m[1] : '';
-        } catch (_) {
-            return '';
-        }
+        } catch (_) { return ''; }
     }
 
-    // совместимость: никаких replaceChildren (не везде есть)
     function clearNode(node) {
-        try {
-            while (node && node.firstChild) node.removeChild(node.firstChild);
-        } catch (_) {}
+        try { while (node && node.firstChild) node.removeChild(node.firstChild); } catch (_) {}
     }
 
-    // ---------- PERF: coalesce + throttled DOM flush ----------
-
-    // чтобы не валить ТВ тысячами одинаковых сообщений (особенно блокировки/ошибки сети)
-    const COALESCE_WINDOW_MS = 1500; // если то же сообщение приходит в пределах окна — увеличиваем счётчик
+    // ---- PERF: coalesce + throttled flush ----
+    const COALESCE_WINDOW_MS = 1500;
     let lastKey = '';
     let lastIdx = -1;
     let lastTs = 0;
 
-    // общий rate-limit (на всякий): максимум N строк в секунду в очередь
     const RATE_MAX_PER_SEC = 25;
     let rateBucketTs = 0;
     let rateBucketCount = 0;
 
     function makeKey(tag, source, message, extra) {
-        // короткий ключ (без ts)
         return String(tag) + '|' + String(source) + '|' + String(message) + '|' + String(extra || '');
     }
 
@@ -195,9 +218,9 @@
         return line + '  ×' + String(count);
     }
 
-    // Планировщик DOM-обновлений: копим строки и рисуем разом (1 кадр / тик)
     let flushScheduled = false;
     function schedulePopupFlush() {
+        if (LOG_OFF) return;
         if (flushScheduled) return;
         flushScheduled = true;
 
@@ -206,12 +229,8 @@
             flushPopupToDom();
         };
 
-        // rAF где возможно, иначе setTimeout
-        if (window.requestAnimationFrame) {
-            window.requestAnimationFrame(runner);
-        } else {
-            setTimeout(runner, 0);
-        }
+        if (window.requestAnimationFrame) window.requestAnimationFrame(runner);
+        else setTimeout(runner, 0);
     }
 
     function makeRow(entry) {
@@ -231,6 +250,7 @@
     }
 
     function fullRebuild() {
+        if (LOG_OFF) return;
         const el = ensurePopup();
         if (!el || !popupBodyEl) return;
 
@@ -239,7 +259,6 @@
         const frag = document.createDocumentFragment();
         for (let i = 0; i < popupQueue.length; i++) {
             const e = popupQueue[i];
-            // fallback, если tag пустой
             if (!e.tag) e.tag = parseTagFromLine(e.line);
             frag.appendChild(makeRow(e));
         }
@@ -248,22 +267,17 @@
     }
 
     function flushPopupToDom() {
+        if (LOG_OFF) return;
         const el = ensurePopup();
         if (!el || !popupBodyEl) return;
 
-        // если DOM отстал (например был создан позже) — rebuild
         if (renderedCount > popupQueue.length) renderedCount = 0;
 
-        // если очередь переполнена и мы сдвигали shift() — проще rebuild
-        // (это случается только когда MAX_LINES превысили)
-        // признак: если renderedCount !== popupQueue.length, но DOM не соответствует — rebuild.
         if (renderedCount === 0 && popupQueue.length > 0 && popupBodyEl.childNodes.length === 0) {
-            // новый попап, просто rebuild
             fullRebuild();
             return;
         }
 
-        // инкрементально дорисуем только новые записи
         if (renderedCount < popupQueue.length) {
             const frag = document.createDocumentFragment();
             for (let i = renderedCount; i < popupQueue.length; i++) {
@@ -273,19 +287,15 @@
             renderedCount = popupQueue.length;
         }
 
-        // если последний элемент коалесцировался — обновим последнюю DOM-строку (дёшево)
-        // (обновление текста уже сделано в queue; тут просто синхронизируем DOM, если нужно)
-        // Важно: на некоторых ТВ NodeList/lastChild может быть null — safe.
         safe(function () {
             const lastDom = popupBodyEl.lastChild;
             const lastQ = popupQueue[popupQueue.length - 1];
-            if (lastDom && lastQ && lastDom.textContent !== lastQ.line) {
-                lastDom.textContent = lastQ.line;
-            }
+            if (lastDom && lastQ && lastDom.textContent !== lastQ.line) lastDom.textContent = lastQ.line;
         });
     }
 
     function showPopupNow() {
+        if (LOG_OFF) return;
         const el = ensurePopup();
         if (!el) return;
 
@@ -297,10 +307,9 @@
     }
 
     function pushPopupLine(line, tag, key) {
-        // rate-limit: если сверх лимита — не спамим DOM/очередь (но можно раз в сек написать что было пропущено)
+        if (LOG_OFF) return;
+
         if (!rateAllow()) {
-            // раз в секунду всё-таки фиксируем, что режем поток (без рекурсии и без спама)
-            // (один раз за окно)
             const now = Date.now();
             if ((now - rateBucketTs) < 1000 && rateBucketCount === (RATE_MAX_PER_SEC + 1)) {
                 const ts = new Date().toLocaleTimeString();
@@ -315,12 +324,9 @@
 
         const now = Date.now();
 
-        // coalesce identical messages in short window
         if (key && key === lastKey && (now - lastTs) <= COALESCE_WINDOW_MS && lastIdx >= 0 && lastIdx < popupQueue.length) {
             const e = popupQueue[lastIdx];
             e.count = (e.count || 1) + 1;
-            // переписываем line с ×N (и обновим DOM на flush)
-            // ВАЖНО: line уже содержит ts; оставляем его (чтобы не было дерготни из-за времени)
             e.line = decorateLine(line, e.count);
             popupQueue[lastIdx] = e;
             schedulePopupFlush();
@@ -330,10 +336,9 @@
 
         popupQueue.push({ line: line, tag: tag || '', key: key || '', ts: now, count: 1 });
 
-        // если превысили MAX_LINES — shift() и mark rebuild
         while (popupQueue.length > MAX_LINES) {
             popupQueue.shift();
-            renderedCount = 0; // DOM теперь не совпадает -> rebuild при flush
+            renderedCount = 0;
             lastIdx = -1;
             lastKey = '';
         }
@@ -347,10 +352,10 @@
     }
 
     function showLine(tag, source, message, extra) {
+        if (LOG_OFF) return;
+
         const ts = new Date().toLocaleTimeString();
         const line = `[${ts}] ${tag} ${source}: ${message}${extra ? ` | ${extra}` : ''}`;
-
-        // ключ коалесцирования — без ts
         const key = makeKey(tag, source, message, extra);
 
         pushPopupLine(line, tag, key);
@@ -362,32 +367,25 @@
     function showInfo(source, message, extra)  { showLine('INF', source, message, extra); }
     function showDbg(source, message, extra)   { showLine('DBG', source, message, extra); }
 
+    // =========================================================================
+    // NETWORK BLOCK (всегда включён; логирование зависит от LOG_MODE)
+    // =========================================================================
 
-    // ===== BLOCK NETWORK (YANDEX + GOOGLE/YOUTUBE + STATS + BWA CORS CHECK) =====
-
-    // 1) Yandex
     const BLOCK_YANDEX_RE =
     /(^|\.)((yandex\.(ru|com|net|by|kz|ua|uz|tm|tj))|(ya\.ru)|(yastatic\.net)|(yandex\.(net|com)\.tr))$/i;
 
-    // 2) Google / YouTube
     const BLOCK_GOOGLE_YT_RE =
     /(^|\.)((google\.com)|(google\.[a-z.]+)|(gstatic\.com)|(googlesyndication\.com)|(googleadservices\.com)|(doubleclick\.net)|(googletagmanager\.com)|(google-analytics\.com)|(analytics\.google\.com)|(api\.google\.com)|(accounts\.google\.com)|(recaptcha\.net)|(youtube\.com)|(ytimg\.com)|(googlevideo\.com)|(youtu\.be)|(youtube-nocookie\.com))$/i;
 
-    // 3) “Statistics / telemetry”
     const BLOCK_STATS_RE =
     /(^|\.)((scorecardresearch\.com)|(quantserve\.com)|(cdn\.quantserve\.com)|(hotjar\.com)|(static\.hotjar\.com)|(mixpanel\.com)|(api\.mixpanel\.com)|(sentry\.io)|(o\d+\.ingest\.sentry\.io)|(datadoghq\.com)|(segment\.com)|(api\.segment\.io)|(amplitude\.com)|(api\.amplitude\.com)|(branch\.io)|(app-measurement\.com))$/i;
 
-    // 4) special-path block: */cors/check на доменах bwa.to (включая rc.bwa.to)
     function isBwaCorsCheck(url) {
         try {
             const host = String(url.hostname || '').toLowerCase();
             const path = String(url.pathname || '').toLowerCase();
-
-            // host: bwa.to или *.bwa.to
             const isBwa = (host === 'bwa.to') || (host.length > 7 && host.slice(host.length - 7) === '.bwa.to');
             if (!isBwa) return false;
-
-            // path starts with /cors/check
             return path.indexOf('/cors/check') === 0;
         } catch (_) {
             return false;
@@ -398,7 +396,6 @@
         try {
             if (!url) return null;
 
-            // PATH-based блок — приоритетнее
             if (isBwaCorsCheck(url)) return 'BWA:CORS';
 
             const h = String(url.hostname || '').toLowerCase();
@@ -418,9 +415,7 @@
         try {
             if (!u) return null;
             const url = new URL(String(u), location.href);
-
             if (url.protocol !== 'http:' && url.protocol !== 'https:') return null;
-
             return classifyBlocked(url);
         } catch (_) {
             return null;
@@ -428,6 +423,9 @@
     }
 
     function logBlocked(u, where, why) {
+        // логирование блокировок — только если лог включён (1/2)
+        if (LOG_OFF) return;
+
         const label = (why || 'Blocked');
 
         try {
@@ -527,11 +525,12 @@
             window.WebSocket.prototype = OrigWS.prototype;
         }
 
-        showOk('policy', 'Network block installed', 'Yandex + Google/YouTube + Statistics + BWA:CORS(/cors/check)');
+        if (!LOG_OFF) showOk('policy', 'Network block installed', 'Yandex + Google/YouTube + Statistics + BWA:CORS(/cors/check)');
     }
 
-
-    // ===== script loader (HARDENED) ============================================
+    // =========================================================================
+    // script loader (HARDENED)
+    // =========================================================================
 
     const LOAD_TIMEOUT_MS = 15000;
     let currentPlugin = null;
@@ -563,7 +562,7 @@
 
                 const t = setTimeout(function () {
                     try { s.onload = null; s.onerror = null; } catch (_) {}
-                    showError(url, 'LOAD TIMEOUT', String(LOAD_TIMEOUT_MS) + 'ms');
+                    if (!LOG_OFF) showError(url, 'LOAD TIMEOUT', String(LOAD_TIMEOUT_MS) + 'ms');
                     finish(false, 'timeout');
                 }, LOAD_TIMEOUT_MS);
 
@@ -574,13 +573,13 @@
 
                 s.onerror = function () {
                     clearTimeout(t);
-                    showError(url, 'LOAD FAIL', 'script.onerror');
+                    if (!LOG_OFF) showError(url, 'LOAD FAIL', 'script.onerror');
                     finish(false, 'onerror');
                 };
 
                 document.head.appendChild(s);
             } catch (e) {
-                showError(url, 'LOAD EXCEPTION', fmtErr(e));
+                if (!LOG_OFF) showError(url, 'LOAD EXCEPTION', fmtErr(e));
                 finish(false, 'exception');
             }
         });
@@ -591,14 +590,51 @@
             if (window.Lampa && window.Lampa.Listener) return true;
             await new Promise(function (r) { setTimeout(r, 500); });
         }
-        showWarn('Lampa', 'wait timeout', 'Lampa not detected');
+        if (!LOG_OFF) showWarn('Lampa', 'wait timeout', 'Lampa not detected');
         return false;
     }
 
+    // =========================================================================
+    // GLOBAL EVENT HOOKS (можно отключить после done)
+    // =========================================================================
 
-    // ===== global error hooks ==================================================
-    // PERF: обработчики должны быть "тонкими": только собрать минимум и закинуть в очередь.
-    window.addEventListener('error', function (ev) {
+    // будем уметь снять обработчики и "заморозить" лог
+    let monitoringEnabled = !LOG_OFF;   // OFF => false
+    let monitorBootOnly = LOG_BOOT_ONLY;
+
+    function shouldLogNow() {
+        // 0: никогда
+        if (LOG_OFF) return false;
+        // 1: пока monitoringEnabled=true (мы его выключим на done)
+        if (LOG_BOOT_ONLY) return monitoringEnabled;
+        // 2: всегда
+        return true;
+    }
+
+    // обёртки, чтобы все show* сами уважали режим
+    function showLineMode(tag, source, message, extra) {
+        if (!shouldLogNow()) return;
+        const ts = new Date().toLocaleTimeString();
+        const line = `[${ts}] ${tag} ${source}: ${message}${extra ? ` | ${extra}` : ''}`;
+        const key = makeKey(tag, source, message, extra);
+        pushPopupLine(line, tag, key);
+    }
+    function showErrorM(source, message, extra) { showLineMode('ERR', source, message, extra); }
+    function showWarnM(source, message, extra)  { showLineMode('WRN', source, message, extra); }
+    function showOkM(source, message, extra)    { showLineMode('OK ', source, message, extra); }
+    function showInfoM(source, message, extra)  { showLineMode('INF', source, message, extra); }
+    function showDbgM(source, message, extra)   { showLineMode('DBG', source, message, extra); }
+
+    // переопределим внутренние show* на mode-aware, чтобы не ломать остальной код
+    showError = showErrorM;
+    showWarn  = showWarnM;
+    showOk    = showOkM;
+    showInfo  = showInfoM;
+    showDbg   = showDbgM;
+
+    // handlers refs for removeEventListener
+    function onWindowError(ev) {
+        if (!shouldLogNow()) return;
         try {
             const msg = ev && ev.message ? ev.message : 'error';
             const file = ev && ev.filename ? ev.filename : '(no file)';
@@ -611,62 +647,94 @@
             (file && PLUGINS.some(function (p) { return p.indexOf(file) !== -1; })) ? file :
             (currentPlugin || file);
 
-            // ВАЖНО: без тяжёлых DOM операций тут
             showError(src, msg, String(file) + ':' + String(line) + ':' + String(col) + (stack ? (' | ' + stack) : ''));
         } catch (_) {}
-    }, true);
+    }
 
-    window.addEventListener('unhandledrejection', function (ev) {
+    function onUnhandledRejection(ev) {
+        if (!shouldLogNow()) return;
         try {
             const reason = ev && ev.reason ? ev.reason : 'unhandled rejection';
             const msg = fmtErr(reason);
             const stack = (reason && reason.stack) ? String(reason.stack).split('\n')[0] : '';
             showError(currentPlugin || 'Promise', msg, stack);
         } catch (_) {}
-    });
+    }
 
+    function enableMonitoring() {
+        if (LOG_OFF) return;
+        if (monitoringEnabled) return;
+        monitoringEnabled = true;
+        try { window.addEventListener('error', onWindowError, true); } catch (_) {}
+        try { window.addEventListener('unhandledrejection', onUnhandledRejection); } catch (_) {}
+    }
 
-    // ===== main ================================================================
+    function disableMonitoring() {
+        monitoringEnabled = false;
+        try { window.removeEventListener('error', onWindowError, true); } catch (_) {}
+        try { window.removeEventListener('unhandledrejection', onUnhandledRejection); } catch (_) {}
+        // попап можно сразу убрать, чтобы вообще не рисовался
+        safe(function () { if (popupEl) popupEl.style.display = 'none'; });
+    }
 
-    // на ТВ часто: тело появляется поздно, а лог уже идёт — ловим момент появления body и создаём попап + перерисуем очередь
-    safe(function () {
-        if (!document || !document.documentElement) return;
-        const mo = new MutationObserver(function () {
-            if (document.body && !popupEl) {
-                ensurePopup();
-                safe(function () { if (popupEl) popupEl.style.display = 'none'; });
-            }
+    // включаем events сразу только если режим не OFF
+    if (!LOG_OFF) {
+        try { window.addEventListener('error', onWindowError, true); } catch (_) {}
+        try { window.addEventListener('unhandledrejection', onUnhandledRejection); } catch (_) {}
+    }
+
+    // =========================================================================
+    // main
+    // =========================================================================
+
+    // на ТВ: body появляется поздно — создадим попап когда появится (но только если лог включён)
+    if (!LOG_OFF) {
+        safe(function () {
+            if (!document || !document.documentElement) return;
+            const mo = new MutationObserver(function () {
+                if (document.body && !popupEl) {
+                    ensurePopup();
+                    safe(function () { if (popupEl) popupEl.style.display = 'none'; });
+                }
+            });
+            mo.observe(document.documentElement, { childList: true, subtree: true });
         });
-        mo.observe(document.documentElement, { childList: true, subtree: true });
-    });
+    }
 
     async function start() {
-        // ставим политику блокировок СРАЗУ (чтобы плагины тоже были под ней)
+        // блокировки сети всегда ставим (даже если LOG_OFF)
         patchBlockNetwork();
 
-        // пробуем создать попап пораньше (если body уже есть)
-        safe(function () { const el = ensurePopup(); if (el) el.style.display = 'none'; });
+        // попап — только если лог включён
+        if (!LOG_OFF) {
+            safe(function () { const el = ensurePopup(); if (el) el.style.display = 'none'; });
+        }
 
         await waitLampa();
 
-        // ещё раз гарантируем, что попап реально создан
-        safe(function () { const el = ensurePopup(); if (el) el.style.display = 'none'; });
+        if (!LOG_OFF) {
+            safe(function () { const el = ensurePopup(); if (el) el.style.display = 'none'; });
+        }
 
-        // загрузка плагинов: не прерывается даже при ошибках
         for (let i = 0; i < PLUGINS.length; i++) {
             const url = PLUGINS[i];
             try {
-                const r = await load(url); // {ok, why, url}
-                try { console.log('[[AutoPlugin]]', r.ok ? 'OK' : 'FAIL', r.why, r.url); } catch (_) {}
-                if (!r.ok) showError(r.url, 'LOAD FAIL', r.why);
-                else showOk(r.url, 'loaded', r.why);
+                const r = await load(url);
+                try { if (!LOG_OFF) console.log('[[AutoPlugin]]', r.ok ? 'OK' : 'FAIL', r.why, r.url); } catch (_) {}
+                if (!r.ok) { if (!LOG_OFF) showError(r.url, 'LOAD FAIL', r.why); }
+                else { if (!LOG_OFF) showOk(r.url, 'loaded', r.why); }
             } catch (e) {
-                try { console.log('[[AutoPlugin]] FAIL exception', url, e); } catch (_) {}
-                showError(url, 'LOAD LOOP EXCEPTION', fmtErr(e));
+                try { if (!LOG_OFF) console.log('[[AutoPlugin]] FAIL exception', url, e); } catch (_) {}
+                if (!LOG_OFF) showError(url, 'LOAD LOOP EXCEPTION', fmtErr(e));
             }
         }
 
-        showOk('AutoPlugin', 'done', 'total=' + String(PLUGINS.length));
+        if (!LOG_OFF) showOk('AutoPlugin', 'done', 'total=' + String(PLUGINS.length));
+
+        // КЛЮЧЕВОЕ: в режиме BOOT-ONLY — после done выключаем мониторинг/ивенты полностью
+        if (LOG_BOOT_ONLY) {
+            disableMonitoring();
+        }
     }
 
     start();
