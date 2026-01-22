@@ -5,6 +5,17 @@
     const PLUGINS = [
         "https://skaztv.online/store.js",
         "http://skaz.tv/vcdn.js",
+        "https://and7ey.github.io/lampa/stats.js",
+        "https://and7ey.github.io/lampa/head_filter.js",
+        "https://andreyurl54.github.io/diesel/tricks.js",
+        "https://bylampa.github.io/redirect.js",
+        "https://bylampa.github.io/lampa/e.js",
+        "https://bylampa.github.io/trailer_off.js",
+        "https://bylampa.github.io/color_vote.js",
+        "https://bylampa.github.io/seas_and_eps.js",
+        "https://bylampa.github.io/old_card_status.js",
+        "https://bylampa.github.io/backmenu.js",
+        "https://bylampa.github.io/cub_off.js",
 
         "https://bwa.to/rc",
         "https://nb557.github.io/plugins/online_mod.js",
