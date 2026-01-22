@@ -49,7 +49,6 @@
         // "http://skaz.tv/onlines.js",
         // "http://skaz.tv/vcdn.js",
         // "https://netfix.cc/netfix.js",
-        // "https://tsynik.github.io/lampa/e.js",
         // "https://and7ey.github.io/lampa/stats.js",
         "https://and7ey.github.io/lampa/head_filter.js",
         "https://and7ey.github.io/lampa/noshots.js",
@@ -68,6 +67,8 @@
         // "https://bdvburik.github.io/title.js",
         "https://bywolf88.github.io/lampa-plugins/interface_mod.js",
 
+        //sources...
+        "https://tsynik.github.io/lampa/e.js",
         // "https://bwa.to/rc",
         "https://bwa.to/cloud.js",
 
