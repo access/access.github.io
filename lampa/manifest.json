@@ -1,11 +1,6 @@
 {
   "scripts": [
-    "scripts/00-core.js",
-    "scripts/buttons.js",
     "scripts/rating.js",
-    "https://bwa.to/rc",
-    "https://bwa.to/cloud.js",
-    "https://nb557.github.io/plugins/online_mod.js",
     "https://bylampa.github.io/account.js",
     "https://bylampa.github.io/addon.js",
     "https://bylampa.github.io/backmenu.js",
@@ -24,6 +19,11 @@
   ],
   "disabled": [],
   "deprecated":[
+    "https://bwa.to/rc",
+    "https://bwa.to/cloud.js",
+    "https://nb557.github.io/plugins/online_mod.js",
+    "scripts/00-core.js",
+    "scripts/buttons.js",
     "Фикс рейтингов...",
     "https://amiv1.github.io/lampa/rating.js",
     "https://bylampa.github.io/start.js",
