@@ -1,7 +1,6 @@
 {
   "scripts": [
     "scripts/rating.js",
-    "https://skaztv.online/store.js",
     "https://bylampa.github.io/addon.js",
     "https://bylampa.github.io/bylampa_source.js",
     "https://bylampa.github.io/cardify.js",
@@ -13,7 +12,8 @@
     "https://bylampa.github.io/orig_title.js",
     "https://bylampa.github.io/redirect.js",
     "https://bylampa.github.io/source.js",
-    "https://bylampa.github.io/interface.js"
+    "https://skaztv.online/store.js",
+    "http://skaz.tv/vcdn.js"
   ],
   "disabled": [],
   "deprecated":[
