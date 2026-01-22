@@ -51,19 +51,20 @@
         el.id = '__autoplugin_popup';
         el.style.cssText = [
             'position:fixed',
+            'top:12px',
             'left:12px',
             'right:12px',
             'bottom:12px',
             'z-index:2147483647',
             'background:rgba(0,0,0,0.80)',
- 'color:#fff',
- 'border-radius:12px',
- 'padding:10px 12px',
- 'font:12px/1.35 ui-monospace,SFMono-Regular,Menlo,Monaco,Consolas,"Liberation Mono","Courier New",monospace',
- 'pointer-events:none',
- 'white-space:pre-wrap',
- 'word-break:break-word',
- 'box-shadow:0 10px 30px rgba(0,0,0,0.35)'
+            'color:#fff',
+            'border-radius:12px',
+            'padding:10px 12px',
+            'font:10px/1.35 ui-monospace,SFMono-Regular,Menlo,Monaco,Consolas,"Liberation Mono","Courier New",monospace',
+            'pointer-events:none',
+            'white-space:pre-wrap',
+            'word-break:break-word',
+            'box-shadow:0 10px 30px rgba(0,0,0,0.35)'
         ].join(';');
 
         const title = document.createElement('div');
