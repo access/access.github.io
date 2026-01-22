@@ -4,6 +4,8 @@
     // список автоплагинов
     const PLUGINS = [
         "https://skaztv.online/store.js",
+        "http://skaz.tv/vcdn.js",
+
         "https://bwa.to/rc",
         "https://nb557.github.io/plugins/online_mod.js",
         "https://bwa.to/cloud.js",
