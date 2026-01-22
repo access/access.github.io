@@ -1,5 +1,9 @@
 {
-  "status": "success",
+"index":1,
+"screen":["bookmarks"],
+"name":"personal",
+"title":"blacklampa",
+"status": "success",
   "data": {
     "account": {
       "id": "0001001",
