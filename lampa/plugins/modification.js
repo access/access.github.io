@@ -1,14 +1,17 @@
 (function () {
     'use strict';
 
-    // список автоплагинов
+    // список автоплагинов (НЕ УДАЛЯЮ закомментированные — оставляю как есть)
     const PLUGINS = [
+        // "http://skaz.tv/onlines.js",
+        // "http://skaz.tv/vcdn.js",
+        // "https://netfix.cc/netfix.js",
         "https://tsynik.github.io/lampa/e.js",
-        "https://and7ey.github.io/lampa/stats.js",
+        //"https://and7ey.github.io/lampa/stats.js",
         "https://and7ey.github.io/lampa/head_filter.js",
-        "https://andreyurl54.github.io/diesel5/tricks.js",
+        //"https://andreyurl54.github.io/diesel5/tricks.js",
 
-        "https://bylampa.github.io/redirect.js",
+        // "https://bylampa.github.io/redirect.js",
         "https://bylampa.github.io/trailer_off.js",
         "https://bylampa.github.io/color_vote.js",
         "https://bylampa.github.io/seas_and_eps.js",
@@ -17,29 +20,25 @@
         "https://bylampa.github.io/cub_off.js",
         "https://bylampa.github.io/addon.js",
 
-        "https://bdvburik.github.io/title.js",
+        // "https://bdvburik.github.io/title.js",
         "https://bywolf88.github.io/lampa-plugins/interface_mod.js",
 
-        "https://bwa.to/rc",
-        "https://bwa.to/cloud.js",
+        // "https://bwa.to/rc",
+        // "https://bwa.to/cloud.js",
 
         "https://nb557.github.io/plugins/online_mod.js",
 
-        "https://skaztv.online/store.js",
-        "https://skaztv.online/js/tricks.js",
+        // "https://skaztv.online/store.js",
+        // "https://skaztv.online/js/tricks.js",
 
-        //origin rating
-        //"https://amiv1.github.io/lampa/rating.js",
-        //with API key my rating copy
-        "scripts/rating.js",
-
+        "https://amiv1.github.io/lampa/rating.js",
         "https://amikdn.github.io/buttons.js"
     ];
 
     // ===== popup ===============================================================
 
     const POPUP_MS = 20_000;
-    const MAX_LINES = 100;
+    const MAX_LINES = 120;
 
     let popupEl = null;
     let popupTimer = null;
@@ -57,18 +56,19 @@
             'right:12px',
             'bottom:12px',
             'z-index:2147483647',
-            'background:rgba(0,0,0,0.80)',
- 'color:#fff',
- 'border-radius:12px',
- 'padding:10px 12px',
- 'font:10px/1.35 ui-monospace,SFMono-Regular,Menlo,Monaco,Consolas,"Liberation Mono","Courier New",monospace',
- 'pointer-events:none',
- 'white-space:pre-wrap',
- 'word-break:break-word',
- 'box-shadow:0 10px 30px rgba(0,0,0,0.35)'
+            'background:rgba(0,0,0,0.82)',
+            'color:#fff',
+            'border-radius:12px',
+            'padding:10px 12px',
+            'font:12px/1.35 ui-monospace,SFMono-Regular,Menlo,Monaco,Consolas,"Liberation Mono","Courier New",monospace',
+            'pointer-events:none',
+            'white-space:pre-wrap',
+            'word-break:break-word',
+            'box-shadow:0 10px 30px rgba(0,0,0,0.35)'
         ].join(';');
 
         const title = document.createElement('div');
+        title.id = '__autoplugin_popup_title';
         title.style.cssText = 'font-weight:700;margin-bottom:6px;opacity:.95';
         title.textContent = 'AutoPlugin log';
 
@@ -121,14 +121,13 @@
 
     // ===== BLOCK YANDEX (log + hard block) =====================================
 
-    // что именно блокируем (добавляй паттерны как хочешь)
-    const BLOCK_HOST_RE = /(^|\.)((yandex\.(ru|com|net|by|kz|ua|uz|tm|tj))|(ya\.ru)|(yastatic\.net)|(yandex\.(net|com)\.tr))$/i;
+    const BLOCK_HOST_RE =
+    /(^|\.)((yandex\.(ru|com|net|by|kz|ua|uz|tm|tj))|(ya\.ru)|(yastatic\.net)|(yandex\.(net|com)\.tr))$/i;
 
     function isBlockedUrl(u) {
         try {
             if (!u) return false;
             const url = new URL(String(u), location.href);
-            // блок только сетевые протоколы
             if (url.protocol !== 'http:' && url.protocol !== 'https:') return false;
             return BLOCK_HOST_RE.test(url.hostname);
         } catch (_) {
@@ -136,7 +135,6 @@
         }
     }
 
-    // красивый лог в консоль (цветом)
     function logBlocked(u, where) {
         try {
             console.log(
@@ -156,7 +154,6 @@
                 const u = (typeof input === 'string') ? input : (input && input.url) ? input.url : '';
                 if (isBlockedUrl(u)) {
                     logBlocked(u, 'fetch');
-                    // имитируем "сетевую" ошибку
                     return Promise.reject(new TypeError('Blocked by policy: Yandex'));
                 }
                 return origFetch(input, init);
@@ -179,7 +176,6 @@
                 if (this.__ap_blocked) {
                     const u = this.__ap_url;
                     logBlocked(u, 'XHR');
-                    // делаем асинхронно, чтобы не ломать ожидания кода
                     const xhr = this;
                     setTimeout(() => {
                         try { xhr.onerror && xhr.onerror(new Error('Blocked by policy: Yandex')); } catch (_) {}
@@ -204,7 +200,7 @@
             };
         }
 
-        // WebSocket (часто редко, но на всякий)
+        // WebSocket
         if (window.WebSocket) {
             const OrigWS = window.WebSocket;
             window.WebSocket = function (url, protocols) {
@@ -220,19 +216,39 @@
         showOk('policy', 'Network block installed', 'Yandex hosts');
     }
 
-    // ===== script loader =======================================================
+    // ===== script loader (HARDENED) ============================================
 
+    // Почему у тебя "останавливается":
+    // - если какой-то плагин кидает ошибку синхронно при выполнении, он может ломать свой же onload-цепочку
+    // - или уходит в "вечную загрузку" (ни onload, ни onerror), и await load(url) висит навсегда
+    //
+    // Решение:
+    // 1) Всегда резолвить промис (даже если нет событий) по TIMEOUT
+    // 2) Никогда не оставлять "await" без try/catch в цикле
+    // 3) Делать async=false (порядок) или async=true (быстрее). Тут оставлю async=true как у тебя.
+
+    const LOAD_TIMEOUT_MS = 15_000;
+
+    // map current "executing plugin" (best-effort)
     let currentPlugin = null;
 
     function load(url) {
         return new Promise((resolve) => {
+            let done = false;
+
+            const finish = (ok, why) => {
+                if (done) return;
+                done = true;
+                currentPlugin = null;
+                resolve({ ok, why: why || (ok ? 'ok' : 'fail'), url });
+            };
+
             try {
                 currentPlugin = url;
 
                 if (isBlockedUrl(url)) {
                     logBlocked(url, 'script');
-                    currentPlugin = null;
-                    resolve(false);
+                    finish(false, 'blocked');
                     return;
                 }
 
@@ -240,31 +256,42 @@
                 s.src = url;
                 s.async = true;
 
+                const t = setTimeout(() => {
+                    try { s.onload = null; s.onerror = null; } catch (_) {}
+                    showError(url, 'LOAD TIMEOUT', `${LOAD_TIMEOUT_MS}ms`);
+                    finish(false, 'timeout');
+                }, LOAD_TIMEOUT_MS);
+
                 s.onload = () => {
-                    currentPlugin = null;
-                    resolve(true);
+                    clearTimeout(t);
+                    finish(true, 'onload');
                 };
 
                 s.onerror = () => {
+                    clearTimeout(t);
                     showError(url, 'LOAD FAIL', 'script.onerror');
-                    currentPlugin = null;
-                    resolve(false);
+                    finish(false, 'onerror');
                 };
 
+                // ВАЖНО: appendChild сам по себе может кинуть (CSP/DOM), ловим
                 document.head.appendChild(s);
+
+                // Доп-страховка: если браузер почему-то синхронно ругнулся и не вызвал события
+                // — finish сработает по таймауту.
             } catch (e) {
                 showError(url, 'LOAD EXCEPTION', fmtErr(e));
-                currentPlugin = null;
-                resolve(false);
+                finish(false, 'exception');
             }
         });
     }
 
     async function waitLampa() {
         for (let i = 0; i < 120; i++) {
-            if (window.Lampa && window.Lampa.Listener) return;
+            if (window.Lampa && window.Lampa.Listener) return true;
             await new Promise(r => setTimeout(r, 500));
         }
+        showWarn('Lampa', 'wait timeout', 'Lampa not detected');
+        return false;
     }
 
     // ===== global error hooks ==================================================
@@ -280,7 +307,6 @@
             const src =
             (file && PLUGINS.some(p => file.includes(p))) ? file :
             (file && PLUGINS.some(p => p.includes(file))) ? file :
-            (PLUGINS.some(p => file && (() => { try { return file.includes(new URL(p).host); } catch { return false; } })())) ? file :
             (currentPlugin || file);
 
             showError(src, msg, `${file}:${line}:${col}${stack ? ` | ${stack}` : ''}`);
@@ -299,18 +325,27 @@
     // ===== main ================================================================
 
     async function start() {
-        // СНАЧАЛА блок сетки (чтобы плагины тоже попадали под него)
         patchBlockNetwork();
 
         await waitLampa();
 
         try { ensurePopup().style.display = 'none'; } catch (_) {}
 
+        // ключевое: даже если load() вдруг кинет (не должен), цикл не должен рваться
         for (const url of PLUGINS) {
-            const ok = await load(url);
-            console.log('[AutoPlugin]', ok ? 'OK' : 'FAIL', url);
-            if (!ok) showError(url, 'LOAD FAIL', 'returned false');
+            try {
+                const r = await load(url); // {ok, why, url}
+                console.log('[AutoPlugin]', r.ok ? 'OK' : 'FAIL', r.why, r.url);
+                if (!r.ok) showError(r.url, 'LOAD FAIL', r.why);
+                else showOk(r.url, 'loaded', r.why);
+            } catch (e) {
+                // на случай совсем неожиданного
+                console.log('[AutoPlugin] FAIL exception', url, e);
+                showError(url, 'LOAD LOOP EXCEPTION', fmtErr(e));
+            }
         }
+
+        showOk('AutoPlugin', 'done', `total=${PLUGINS.length}`);
     }
 
     start();
