@@ -205,57 +205,39 @@
     /(^|\.)((yandex\.(ru|com|net|by|kz|ua|uz|tm|tj))|(ya\.ru)|(yastatic\.net)|(yandex\.(net|com)\.tr))$/i;
 
     // 2) Google / YouTube
-    // (хосты/домены: google/yt/ads/video/captcha и т.п.)
+    // FIX: JS НЕ поддерживает флаг /x, поэтому regexp должен быть в одну строку без "красивых" переносов.
     const BLOCK_GOOGLE_YT_RE =
-    /(^|\.)(
-        google\.com|
-        google\.[a-z.]+|
-        gstatic\.com|
-        googlesyndication\.com|
-        googleadservices\.com|
-        doubleclick\.net|
-        googletagmanager\.com|
-        google-analytics\.com|
-        analytics\.google\.com|
-        api\.google\.com|
-        accounts\.google\.com|
-        recaptcha\.net|
-        youtube\.com|
-        ytimg\.com|
-        googlevideo\.com|
-        youtu\.be|
-        youtube-nocookie\.com
-    )$/ix;
+    /(^|\.)(google\.com|google\.[a-z.]+|gstatic\.com|googlesyndication\.com|googleadservices\.com|doubleclick\.net|googletagmanager\.com|google-analytics\.com|analytics\.google\.com|api\.google\.com|accounts\.google\.com|recaptcha\.net|youtube\.com|ytimg\.com|googlevideo\.com|youtu\.be|youtube-nocookie\.com)$/i;
 
     // 3) “Statistics / telemetry” (часто встречаемые трекеры)
-    // (можешь расширять спокойно)
+    // FIX: тоже без /x
     const BLOCK_STATS_RE =
-    /(^|\.)(
-        scorecardresearch\.com|
-        quantserve\.com|
-        cdn\.quantserve\.com|
-        hotjar\.com|
-        static\.hotjar\.com|
-        mixpanel\.com|
-        api\.mixpanel\.com|
-        sentry\.io|
-        o\d+\.ingest\.sentry\.io|
-        datadoghq\.com|
-        segment\.com|
-        api\.segment\.io|
-        amplitude\.com|
-        api\.amplitude\.com|
-        branch\.io|
-        app-measurement\.com
-    )$/ix;
+    /(^|\.)(scorecardresearch\.com|quantserve\.com|cdn\.quantserve\.com|hotjar\.com|static\.hotjar\.com|mixpanel\.com|api\.mixpanel\.com|sentry\.io|o\d+\.ingest\.sentry\.io|datadoghq\.com|segment\.com|api\.segment\.io|amplitude\.com|api\.amplitude\.com|branch\.io|app-measurement\.com)$/i;
 
-    function classifyBlockedHost(hostname) {
+    // 4) special-path block: bwa.to/cors/check (как попросил)
+    // (host = bwa.to, path начинается с /cors/check)
+    function isBwaCorsCheck(url) {
         try {
-            const h = String(hostname || '').toLowerCase();
+            return (url.hostname.toLowerCase() === 'bwa.to' && String(url.pathname || '').toLowerCase().startsWith('/cors/check'));
+        } catch (_) {
+            return false;
+        }
+    }
+
+    function classifyBlocked(url) {
+        try {
+            if (!url) return null;
+
+            // PATH-based блок (приоритетнее доменных правил)
+            if (isBwaCorsCheck(url)) return 'BWA:CORS';
+
+            const h = String(url.hostname || '').toLowerCase();
             if (!h) return null;
+
             if (BLOCK_YANDEX_RE.test(h)) return 'Yandex';
             if (BLOCK_GOOGLE_YT_RE.test(h)) return 'Google/YouTube';
             if (BLOCK_STATS_RE.test(h)) return 'Statistics';
+
             return null;
         } catch (_) {
             return null;
@@ -270,7 +252,7 @@
             // блок только сетевые протоколы
             if (url.protocol !== 'http:' && url.protocol !== 'https:') return null;
 
-            return classifyBlockedHost(url.hostname);
+            return classifyBlocked(url);
         } catch (_) {
             return null;
         }
@@ -285,12 +267,14 @@
             label === 'Yandex' ? 'background:#ff2d55' :
             label === 'Google/YouTube' ? 'background:#ff9500' :
             label === 'Statistics' ? 'background:#8e8e93' :
+            label === 'BWA:CORS' ? 'background:#00c2ff' :
             'background:#ff2d55';
 
             const txt =
             label === 'Yandex' ? '#ff2d55' :
             label === 'Google/YouTube' ? '#ff9500' :
             label === 'Statistics' ? '#8e8e93' :
+            label === 'BWA:CORS' ? '#00c2ff' :
             '#ff2d55';
 
             console.log(
@@ -375,7 +359,7 @@
             window.WebSocket.prototype = OrigWS.prototype;
         }
 
-        showOk('policy', 'Network block installed', 'Yandex + Google/YouTube + Statistics');
+        showOk('policy', 'Network block installed', 'Yandex + Google/YouTube + Statistics + BWA:CORS(/cors/check)');
     }
 
     // ===== script loader (HARDENED) ============================================
@@ -505,5 +489,3 @@
 
     start();
 })();
-
-
