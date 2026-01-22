@@ -53,7 +53,7 @@
         // "https://and7ey.github.io/lampa/stats.js",
         "https://and7ey.github.io/lampa/head_filter.js",
         "https://and7ey.github.io/lampa/noshots.js",
-        "https://andreyurl54.github.io/diesel5/tricks.js",
+        //"https://andreyurl54.github.io/diesel5/tricks.js",
 
         // "https://bylampa.github.io/redirect.js",
         // "https://bylampa.github.io/trailer_off.js",
@@ -69,15 +69,16 @@
 
         //sources...
         "https://tsynik.github.io/lampa/e.js",
+
+        //players
+        "https://nb557.github.io/plugins/online_mod.js",
+        "https://lampa.stream/modss",
         // "https://bwa.to/rc",
         "https://bwa.to/cloud.js",
 
-        "https://lampa.stream/modss",
-
-        "https://nb557.github.io/plugins/online_mod.js",
 
         "https://skaztv.online/store.js",
-        //"https://skaztv.online/js/tricks.js",
+        "https://skaztv.online/js/tricks.js",
 
         "https://aviamovie.github.io/surs.js",
         // "https://amiv1.github.io/lampa/rating.js",
