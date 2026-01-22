@@ -100,7 +100,7 @@
             'white-space:pre-wrap',
             'word-break:break-word',
             'overflow:auto',
-            'box-shadow:0 10px 30px rgba(0,0,0,0.35)'
+            'box-shadow:0 10px 30px rgba(0,0,0,0.25)'
             // scrollbar-gutter НЕ везде поддерживается; добавлять можно, но не критично.
             // 'scrollbar-gutter:stable both-edges'
         ].join(';');
