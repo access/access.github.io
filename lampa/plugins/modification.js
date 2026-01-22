@@ -1,73 +1,62 @@
 (function () {
     'use strict';
 
-    // =========================================================================
-    // LOG MODES
-    //   0 = OFF  : no popup, no console spam, no window event hooks
-    //   1 = BOOT : log only during plugin loading; after "AutoPlugin done" -> removeEventListener(...)
-    //   2 = FULL : keep logging forever (current behavior)
+    // ============================================================================
+    // LOG MODES (0/1/2)
+    // 0 = OFF (никаких window events, никакого popup)
+    // 1 = BOOT (лог + window events ТОЛЬКО до "AutoPlugin done", потом отписка)
+    // 2 = FULL (как сейчас: лог + window events всегда)
     //
-    // Control via URL:
-    //   ?aplog=0|1|2        (one-shot for this run)
-    //   ?aplog_set=0|1|2    (persist to localStorage)
-    //
-    // Examples:
-    //   https://access.github.io/lampa/?aplog=0
-    //   https://access.github.io/lampa/?aplog=1
-    //   https://access.github.io/lampa/?aplog=2
-    //   https://access.github.io/lampa/?aplog_set=1
-    // =========================================================================
+    // Переопределение без правки файла:
+    //   ?aplog=0|1|2   (или ?apmode=0|1|2)
+    // Также читает localStorage.aplog если есть.
+    // ============================================================================
 
-    function safe(fn) { try { return fn(); } catch (_) { return null; } }
+    var DEFAULT_LOG_MODE = 1;
 
-    function getQuery(name) {
+    function toInt(x, d) {
+        var n = parseInt(x, 10);
+        return isNaN(n) ? d : n;
+    }
+
+    function getQueryParam(name) {
         try {
             var s = String(location.search || '');
             if (!s) return null;
-            s = s.charAt(0) === '?' ? s.substring(1) : s;
+            if (s.charAt(0) === '?') s = s.slice(1);
             var parts = s.split('&');
             for (var i = 0; i < parts.length; i++) {
                 var kv = parts[i].split('=');
-                if (kv[0] === name) return kv.length > 1 ? decodeURIComponent(kv[1] || '') : '';
+                if (decodeURIComponent(kv[0] || '') === name) return decodeURIComponent(kv[1] || '');
             }
-            return null;
-        } catch (_) {
-            return null;
-        }
-    }
-
-    function parseMode(v) {
-        var n = parseInt(String(v), 10);
-        if (n === 0 || n === 1 || n === 2) return n;
+        } catch (_) {}
         return null;
     }
 
-    var MODE = (function () {
-        // persist setter
-        var setv = parseMode(getQuery('aplog_set'));
-        if (setv !== null) {
-            safe(function () { localStorage.setItem('aplog', String(setv)); });
-        }
+    function getLogMode() {
+        var q = getQueryParam('aplog');
+        if (q == null) q = getQueryParam('apmode');
+        if (q != null) return clampMode(toInt(q, DEFAULT_LOG_MODE));
 
-        // one-shot mode
-        var q = parseMode(getQuery('aplog'));
-        if (q !== null) return q;
+        try {
+            var ls = null;
+            try { ls = localStorage.getItem('aplog'); } catch (_) {}
+            if (ls != null && ls !== '') return clampMode(toInt(ls, DEFAULT_LOG_MODE));
+        } catch (_) {}
 
-        // persisted mode
-        var st = safe(function () { return localStorage.getItem('aplog'); });
-        var ps = parseMode(st);
-        if (ps !== null) return ps;
+        return clampMode(DEFAULT_LOG_MODE);
+    }
 
-        // default
-        return 1; // BOOT default is best for TV performance
-    })();
+    function clampMode(m) {
+        if (m !== 0 && m !== 1 && m !== 2) return DEFAULT_LOG_MODE;
+        return m;
+    }
 
-    var LOG_OFF = (MODE === 0);
-    var LOG_BOOT_ONLY = (MODE === 1);
+    var LOG_MODE = getLogMode();
 
-    // =========================================================================
-    // PLUGINS LIST (НЕ УДАЛЯЮ закомментированные)
-    // =========================================================================
+    // ============================================================================
+    // список автоплагинов (НЕ УДАЛЯЮ закомментированные — оставляю как есть)
+    // ============================================================================
     var PLUGINS = [
         // "http://skaz.tv/onlines.js",
         // "http://skaz.tv/vcdn.js",
@@ -105,17 +94,17 @@
         "https://amikdn.github.io/buttons.js"
     ];
 
-    // =========================================================================
-    // POPUP (PERF: incremental append + throttled flush)
-    // =========================================================================
-
+    // ============================================================================
+    // popup (только если LOG_MODE != 0)
+    // ============================================================================
     var POPUP_MS = 20000;
     var MAX_LINES = 120;
 
     var popupEl = null;
     var popupTimer = null;
 
-    var popupQueue = []; // { line, tag, key, ts, count }
+    // инкрементальный лог (не фулл перерендер)
+    var popupQueue = []; // {line, tag, key, ts, count}
     var popupBodyEl = null;
     var renderedCount = 0;
 
@@ -127,10 +116,12 @@
         'DBG': { color: '#8c8c8c' }
     };
 
-    // проще и максимально совместимо для ТВ
     var POPUP_FONT = '12px/1.35 Courier, "Courier New", monospace';
 
+    function safe(fn) { try { return fn(); } catch (_) { return null; } }
+
     function ensurePopup() {
+        if (LOG_MODE === 0) return null;
         if (popupEl) return popupEl;
         if (!document || !document.body) return null;
 
@@ -172,7 +163,7 @@
             'margin-bottom:6px',
             'opacity:.95'
         ].join(';');
-        title.textContent = 'AutoPlugin log (mode=' + String(MODE) + ')';
+        title.textContent = 'AutoPlugin log (mode=' + String(LOG_MODE) + ')';
 
         var body = document.createElement('div');
         body.id = '__autoplugin_popup_body';
@@ -204,6 +195,7 @@
         try { while (node && node.firstChild) node.removeChild(node.firstChild); } catch (_) {}
     }
 
+    // PERF coalesce + throttled flush
     var COALESCE_WINDOW_MS = 1500;
     var lastKey = '';
     var lastIdx = -1;
@@ -234,6 +226,7 @@
 
     var flushScheduled = false;
     function schedulePopupFlush() {
+        if (LOG_MODE === 0) return;
         if (flushScheduled) return;
         flushScheduled = true;
 
@@ -255,8 +248,10 @@
             'margin:0',
             'padding:0'
         ].join(';');
+
         var tag = entry.tag;
         if (tag && TAG_STYLE[tag]) row.style.color = TAG_STYLE[tag].color;
+
         return row;
     }
 
@@ -265,11 +260,8 @@
         if (!el || !popupBodyEl) return;
 
         clearNode(popupBodyEl);
-
         var frag = document.createDocumentFragment();
-        for (var i = 0; i < popupQueue.length; i++) {
-            frag.appendChild(makeRow(popupQueue[i]));
-        }
+        for (var i = 0; i < popupQueue.length; i++) frag.appendChild(makeRow(popupQueue[i]));
         popupBodyEl.appendChild(frag);
         renderedCount = popupQueue.length;
     }
@@ -287,9 +279,7 @@
 
         if (renderedCount < popupQueue.length) {
             var frag = document.createDocumentFragment();
-            for (var i = renderedCount; i < popupQueue.length; i++) {
-                frag.appendChild(makeRow(popupQueue[i]));
-            }
+            for (var i = renderedCount; i < popupQueue.length; i++) frag.appendChild(makeRow(popupQueue[i]));
             popupBodyEl.appendChild(frag);
             renderedCount = popupQueue.length;
         }
@@ -297,17 +287,16 @@
         safe(function () {
             var lastDom = popupBodyEl.lastChild;
             var lastQ = popupQueue[popupQueue.length - 1];
-            if (lastDom && lastQ && lastDom.textContent !== lastQ.line) {
-                lastDom.textContent = lastQ.line;
-            }
+            if (lastDom && lastQ && lastDom.textContent !== lastQ.line) lastDom.textContent = lastQ.line;
         });
     }
 
     function showPopupNow() {
+        if (LOG_MODE === 0) return;
         var el = ensurePopup();
         if (!el) return;
-        el.style.display = 'block';
 
+        el.style.display = 'block';
         if (popupTimer) clearTimeout(popupTimer);
         popupTimer = setTimeout(function () {
             if (popupEl) popupEl.style.display = 'none';
@@ -315,6 +304,8 @@
     }
 
     function pushPopupLine(line, tag, key) {
+        if (LOG_MODE === 0) return;
+
         if (!rateAllow()) {
             var now = Date.now();
             if ((now - rateBucketTs) < 1000 && rateBucketCount === (RATE_MAX_PER_SEC + 1)) {
@@ -328,9 +319,9 @@
             return;
         }
 
-        var now2 = Date.now();
+        var t = Date.now();
 
-        if (key && key === lastKey && (now2 - lastTs) <= COALESCE_WINDOW_MS && lastIdx >= 0 && lastIdx < popupQueue.length) {
+        if (key && key === lastKey && (t - lastTs) <= COALESCE_WINDOW_MS && lastIdx >= 0 && lastIdx < popupQueue.length) {
             var e = popupQueue[lastIdx];
             e.count = (e.count || 1) + 1;
             e.line = decorateLine(line, e.count);
@@ -340,7 +331,7 @@
             return;
         }
 
-        popupQueue.push({ line: line, tag: tag || '', key: key || '', ts: now2, count: 1 });
+        popupQueue.push({ line: line, tag: tag || '', key: key || '', ts: t, count: 1 });
 
         while (popupQueue.length > MAX_LINES) {
             popupQueue.shift();
@@ -351,16 +342,29 @@
 
         lastKey = key || '';
         lastIdx = popupQueue.length - 1;
-        lastTs = now2;
+        lastTs = t;
 
         schedulePopupFlush();
         showPopupNow();
     }
 
-    // =========================================================================
-    // NETWORK BLOCK
-    // =========================================================================
+    function showLine(tag, source, message, extra) {
+        if (LOG_MODE === 0) return;
+        var ts = new Date().toLocaleTimeString();
+        var line = '[' + ts + '] ' + tag + ' ' + source + ': ' + message + (extra ? (' | ' + extra) : '');
+        var key = makeKey(tag, source, message, extra);
+        pushPopupLine(line, tag, key);
+    }
 
+    function showError(source, message, extra) { showLine('ERR', source, message, extra); }
+    function showWarn(source, message, extra)  { showLine('WRN', source, message, extra); }
+    function showOk(source, message, extra)    { showLine('OK ', source, message, extra); }
+    function showInfo(source, message, extra)  { showLine('INF', source, message, extra); }
+    function showDbg(source, message, extra)   { showLine('DBG', source, message, extra); }
+
+    // ============================================================================
+    // NETWORK BLOCK (оставляю как было)
+    // ============================================================================
     var BLOCK_YANDEX_RE =
     /(^|\.)((yandex\.(ru|com|net|by|kz|ua|uz|tm|tj))|(ya\.ru)|(yastatic\.net)|(yandex\.(net|com)\.tr))$/i;
 
@@ -368,16 +372,14 @@
     /(^|\.)((google\.com)|(google\.[a-z.]+)|(gstatic\.com)|(googlesyndication\.com)|(googleadservices\.com)|(doubleclick\.net)|(googletagmanager\.com)|(google-analytics\.com)|(analytics\.google\.com)|(api\.google\.com)|(accounts\.google\.com)|(recaptcha\.net)|(youtube\.com)|(ytimg\.com)|(googlevideo\.com)|(youtu\.be)|(youtube-nocookie\.com))$/i;
 
     var BLOCK_STATS_RE =
-    /(^|\.)((scorecardresearch\.com)|(quantserve\.com)|(cdn\.quantserve\.com)|(hotjar\.com)|(static\.hotjar\.com)|(mixpanel\.com)|(api\.mixpanel\.com)|(sentry\.io)|(o\d+\.ingest\.sentry\.io)|(datadoghq\.com)|(segment\.com)|(api\.segment\.io)|(amplitude\.com)|(api\.amplitude\.com)|(branch\.io)|(app-measurement\.com))$/i;
+    /(^|\.)((scorecardresearch\.com)|(quantserve\.com)|(cdn\.quantserve\.com)|(hotjar\.com)|(static\.hotjar\.com)|(mixpanel\.com)|(api\.mixpanel\.com)|(sentry\.io)|(o\\d+\\.ingest\\.sentry\\.io)|(datadoghq\\.com)|(segment\\.com)|(api\\.segment\\.io)|(amplitude\\.com)|(api\\.amplitude\\.com)|(branch\\.io)|(app-measurement\\.com))$/i;
 
     function isBwaCorsCheck(url) {
         try {
             var host = String(url.hostname || '').toLowerCase();
             var path = String(url.pathname || '').toLowerCase();
-
             var isBwa = (host === 'bwa.to') || (host.length > 7 && host.slice(host.length - 7) === '.bwa.to');
             if (!isBwa) return false;
-
             return path.indexOf('/cors/check') === 0;
         } catch (_) {
             return false;
@@ -387,7 +389,6 @@
     function classifyBlocked(url) {
         try {
             if (!url) return null;
-
             if (isBwaCorsCheck(url)) return 'BWA:CORS';
 
             var h = String(url.hostname || '').toLowerCase();
@@ -415,31 +416,8 @@
     }
 
     function logBlocked(u, where, why) {
-        if (LOG_OFF) return;
         var label = (why || 'Blocked');
-
-        safe(function () {
-            var badge =
-            label === 'Yandex' ? 'background:#ff2d55' :
-            label === 'Google/YouTube' ? 'background:#ff9500' :
-            label === 'Statistics' ? 'background:#8e8e93' :
-            label === 'BWA:CORS' ? 'background:#00c2ff' :
-            'background:#ff2d55';
-
-            var txt =
-            label === 'Yandex' ? '#ff2d55' :
-            label === 'Google/YouTube' ? '#ff9500' :
-            label === 'Statistics' ? '#8e8e93' :
-            label === 'BWA:CORS' ? '#00c2ff' :
-            '#ff2d55';
-
-        console.log(
-            '%c[BLOCKED:' + label + ']%c ' + where + ' -> ' + u,
-            badge + ';color:#fff;padding:2px 6px;border-radius:6px;font-weight:700',
-            'color:' + txt
-        );
-        });
-
+        try { console.log('[[AutoPlugin]] BLOCKED', label, where, u); } catch (_) {}
         showWarn(where, 'BLOCKED (' + label + ')', u);
     }
 
@@ -476,9 +454,9 @@
 
                     var xhr = this;
                     setTimeout(function () {
-                        safe(function () { if (xhr.onerror) xhr.onerror(new Error('Blocked by policy: ' + why)); });
-                        safe(function () { if (xhr.onreadystatechange) xhr.onreadystatechange(); });
-                        safe(function () { if (xhr.dispatchEvent) xhr.dispatchEvent(new Event('error')); });
+                        try { if (xhr.onerror) xhr.onerror(new Error('Blocked by policy: ' + why)); } catch (_) {}
+                        try { if (xhr.onreadystatechange) xhr.onreadystatechange(); } catch (_) {}
+                        try { if (xhr.dispatchEvent) xhr.dispatchEvent(new Event('error')); } catch (_) {}
                     }, 0);
                     return;
                 }
@@ -511,194 +489,266 @@
             window.WebSocket.prototype = OrigWS.prototype;
         }
 
-        if (!LOG_OFF) showOk('policy', 'Network block installed', 'Yandex + Google/YouTube + Statistics + BWA:CORS(/cors/check)');
+        showOk('policy', 'Network block installed', 'Yandex + Google/YouTube + Statistics + BWA:CORS(/cors/check)');
     }
 
-    // =========================================================================
-    // SCRIPT LOADER
-    // =========================================================================
+    // ============================================================================
+    // IMPORTANT PART: "вшивание" в систему Lampa (plugins storage), а не просто load()
+    // Используем ровно тот же механизм, что в твоём addon.js:
+    //   Lampa.Storage.get('plugins') -> push({author,url,name,status:1}) -> set обратно
+    //   и только для НОВЫХ делаем инъекцию script чтобы работало сразу
+    // ============================================================================
+    var AUTO_ENABLE_DISABLED = true;  // если плагин найден, но status=0 -> включить (status=1)
+var INJECT_NEWLY_INSTALLED = true; // для новых: сразу <script src=...> (как itemON)
 
-    var LOAD_TIMEOUT_MS = 15000;
-    var currentPlugin = null;
+function absUrl(u) {
+    try { return String(new URL(String(u), location.href).href); } catch (_) { return String(u); }
+}
 
-    function load(url) {
-        return new Promise(function (resolve) {
-            var done = false;
-
-            function finish(ok, why) {
-                if (done) return;
-                done = true;
-                currentPlugin = null;
-                resolve({ ok: ok, why: why || (ok ? 'ok' : 'fail'), url: url });
-            }
-
-            try {
-                currentPlugin = url;
-
-                var blockReason = isBlockedUrl(url);
-                if (blockReason) {
-                    logBlocked(url, 'script', blockReason);
-                    finish(false, 'blocked:' + blockReason);
-                    return;
-                }
-
-                var s = document.createElement('script');
-                s.src = url;
-                s.async = true;
-
-                var t = setTimeout(function () {
-                    safe(function () { s.onload = null; s.onerror = null; });
-                    if (!LOG_OFF) showError(url, 'LOAD TIMEOUT', String(LOAD_TIMEOUT_MS) + 'ms');
-                    finish(false, 'timeout');
-                }, LOAD_TIMEOUT_MS);
-
-                s.onload = function () {
-                    clearTimeout(t);
-                    finish(true, 'onload');
-                };
-
-                s.onerror = function () {
-                    clearTimeout(t);
-                    if (!LOG_OFF) showError(url, 'LOAD FAIL', 'script.onerror');
-                    finish(false, 'onerror');
-                };
-
-                document.head.appendChild(s);
-            } catch (e) {
-                if (!LOG_OFF) showError(url, 'LOAD EXCEPTION', fmtErr(e));
-                finish(false, 'exception');
-            }
-        });
+function guessName(url) {
+    try {
+        var u = new URL(String(url), location.href);
+        var p = String(u.pathname || '');
+        var last = p.split('/'); last = last[last.length - 1] || '';
+        if (!last) last = u.hostname;
+        return last;
+    } catch (_) {
+        var s = String(url);
+        var a = s.split('/'); return a[a.length - 1] || s;
     }
+}
 
-    async function waitLampa() {
-        for (var i = 0; i < 120; i++) {
-            if (window.Lampa && window.Lampa.Listener) return true;
-            await new Promise(function (r) { setTimeout(r, 500); });
+function guessAuthor(url) {
+    try {
+        var u = new URL(String(url), location.href);
+        return '@' + String(u.hostname || 'plugin');
+    } catch (_) {
+        return '@plugin';
+    }
+}
+
+function findPluginIndex(arr, urlAbs) {
+    for (var i = 0; i < arr.length; i++) {
+        try {
+            if (String(arr[i].url || '') === urlAbs) return i;
+        } catch (_) {}
+    }
+    return -1;
+}
+
+function injectScript(urlAbs) {
+    return new Promise(function (resolve) {
+        try {
+            var s = document.createElement('script');
+            s.src = urlAbs;
+            s.async = true;
+            s.onload = function () { resolve({ ok: true, why: 'onload', url: urlAbs }); };
+            s.onerror = function () { resolve({ ok: false, why: 'onerror', url: urlAbs }); };
+            document.head.appendChild(s);
+        } catch (e) {
+            resolve({ ok: false, why: 'exception:' + fmtErr(e), url: urlAbs });
         }
-        if (!LOG_OFF) showWarn('Lampa', 'wait timeout', 'Lampa not detected');
-        return false;
-    }
+    });
+}
 
-    // =========================================================================
-    // MODE-AWARE LOGGING + WINDOW EVENT HOOKS (removable)
-    // =========================================================================
+function ensureInstalledOne(url) {
+    return new Promise(function (resolve) {
+        var urlAbs = absUrl(url);
 
-    var monitoringEnabled = !LOG_OFF;
+        // network policy block (не даём поставить то, что мы сами блокируем)
+        var br = isBlockedUrl(urlAbs);
+        if (br) {
+            logBlocked(urlAbs, 'install', br);
+            resolve({ ok: false, action: 'blocked', url: urlAbs, why: br });
+            return;
+        }
 
-    function shouldLogNow() {
-        if (LOG_OFF) return false;
-        if (LOG_BOOT_ONLY) return monitoringEnabled;
-        return true;
-    }
+        if (!window.Lampa || !Lampa.Storage) {
+            resolve({ ok: false, action: 'no-lampa', url: urlAbs, why: 'Lampa.Storage missing' });
+            return;
+        }
 
-    function showLineMode(tag, source, message, extra) {
-        if (!shouldLogNow()) return;
-        var ts = new Date().toLocaleTimeString();
-        var line = '[' + ts + '] ' + tag + ' ' + source + ': ' + message + (extra ? (' | ' + extra) : '');
-        var key = makeKey(tag, source, message, extra);
-        pushPopupLine(line, tag, key);
-    }
+        var plugins = Lampa.Storage.get('plugins');
+        if (!plugins || typeof plugins.length !== 'number') plugins = [];
 
-    // declare as vars so we can reassign below
-    var showError = function (s, m, e) { showLineMode('ERR', s, m, e); };
-    var showWarn  = function (s, m, e) { showLineMode('WRN', s, m, e); };
-    var showOk    = function (s, m, e) { showLineMode('OK ', s, m, e); };
-    var showInfo  = function (s, m, e) { showLineMode('INF', s, m, e); };
-    var showDbg   = function (s, m, e) { showLineMode('DBG', s, m, e); };
+        var idx = findPluginIndex(plugins, urlAbs);
+        if (idx >= 0) {
+            // already exists
+            if (AUTO_ENABLE_DISABLED && plugins[idx] && plugins[idx].status === 0) {
+                plugins[idx].status = 1;
+                Lampa.Storage.set('plugins', plugins);
+                try { if (Lampa.Settings && Lampa.Settings.update) Lampa.Settings.update(); } catch (_) {}
+                showOk('install', 'enabled', urlAbs);
+                resolve({ ok: true, action: 'enabled', url: urlAbs, why: 'was disabled' });
+                return;
+            }
 
-    function onWindowError(ev) {
-        if (!shouldLogNow()) return;
-        try {
-            var msg = (ev && ev.message) ? ev.message : 'error';
-            var file = (ev && ev.filename) ? ev.filename : '(no file)';
-            var line = (ev && typeof ev.lineno === 'number') ? ev.lineno : '?';
-            var col  = (ev && typeof ev.colno === 'number') ? ev.colno : '?';
-            var stack = (ev && ev.error && ev.error.stack) ? String(ev.error.stack).split('\n')[0] : '';
+            showDbg('install', 'skip (already)', urlAbs);
+            resolve({ ok: true, action: 'skip', url: urlAbs, why: 'already installed' });
+            return;
+        }
 
-            var src =
-            (file && PLUGINS.some(function (p) { return file.indexOf(p) !== -1; })) ? file :
-            (file && PLUGINS.some(function (p) { return p.indexOf(file) !== -1; })) ? file :
-            (currentPlugin || file);
+        // install into Lampa system
+        var entry = {
+            author: guessAuthor(urlAbs),
+                       url: urlAbs,
+                       name: guessName(urlAbs),
+                       status: 1
+        };
 
-            showError(src, msg, String(file) + ':' + String(line) + ':' + String(col) + (stack ? (' | ' + stack) : ''));
-        } catch (_) {}
-    }
+        plugins.push(entry);
+        Lampa.Storage.set('plugins', plugins);
 
-    function onUnhandledRejection(ev) {
-        if (!shouldLogNow()) return;
-        try {
-            var reason = (ev && ev.reason) ? ev.reason : 'unhandled rejection';
-            var msg = fmtErr(reason);
-            var stack = (reason && reason.stack) ? String(reason.stack).split('\n')[0] : '';
-            showError(currentPlugin || 'Promise', msg, stack);
-        } catch (_) {}
-    }
+        try { if (Lampa.Settings && Lampa.Settings.update) Lampa.Settings.update(); } catch (_) {}
 
-    function disableMonitoring() {
-        monitoringEnabled = false;
-        safe(function () { window.removeEventListener('error', onWindowError, true); });
-        safe(function () { window.removeEventListener('unhandledrejection', onUnhandledRejection); });
+        showOk('install', 'installed', urlAbs);
+
+        if (!INJECT_NEWLY_INSTALLED) {
+            resolve({ ok: true, action: 'installed', url: urlAbs, why: 'no-inject' });
+            return;
+        }
+
+        // immediate injection (как itemON)
+        injectScript(urlAbs).then(function (r) {
+            if (r.ok) showOk('inject', 'ok', urlAbs);
+            else showError('inject', 'fail', urlAbs + ' | ' + r.why);
+            resolve({ ok: r.ok, action: 'installed+inject', url: urlAbs, why: r.why });
+        });
+    });
+}
+
+function ensureInstalledAll(list) {
+    // sequential, без async/await (TV-friendly)
+    return new Promise(function (resolve) {
+        var i = 0;
+        function step() {
+            if (i >= list.length) { resolve(true); return; }
+            var url = list[i++];
+            ensureInstalledOne(url).then(function () {
+                // не стопаемся на ошибках
+                setTimeout(step, 0);
+            });
+        }
+        step();
+    });
+}
+
+// ============================================================================
+// wait for Lampa
+// ============================================================================
+function waitLampa(cb) {
+    var tries = 0;
+    var max = 240; // 240 * 250ms = 60s
+    var t = setInterval(function () {
+        tries++;
+        if (window.Lampa && Lampa.Listener && Lampa.Storage) {
+            clearInterval(t);
+            cb(true);
+            return;
+        }
+        if (tries >= max) {
+            clearInterval(t);
+            cb(false);
+        }
+    }, 250);
+}
+
+// ============================================================================
+// global error hooks (attach/detach by mode)
+// ============================================================================
+var currentPlugin = null;
+
+function onWinError(ev) {
+    if (LOG_MODE === 0) return;
+    try {
+        var msg = ev && ev.message ? ev.message : 'error';
+        var file = ev && ev.filename ? ev.filename : '(no file)';
+        var line = (ev && typeof ev.lineno === 'number') ? ev.lineno : '?';
+        var col  = (ev && typeof ev.colno === 'number') ? ev.colno : '?';
+        var stack = (ev && ev.error && ev.error.stack) ? String(ev.error.stack).split('\n')[0] : '';
+        var src = currentPlugin || file;
+        showError(src, msg, String(file) + ':' + String(line) + ':' + String(col) + (stack ? (' | ' + stack) : ''));
+    } catch (_) {}
+}
+
+function onUnhandledRejection(ev) {
+    if (LOG_MODE === 0) return;
+    try {
+        var reason = ev && ev.reason ? ev.reason : 'unhandled rejection';
+        var msg = fmtErr(reason);
+        var stack = (reason && reason.stack) ? String(reason.stack).split('\n')[0] : '';
+        showError(currentPlugin || 'Promise', msg, stack);
+    } catch (_) {}
+}
+
+function attachGlobalHooks() {
+    if (LOG_MODE === 0) return;
+    window.addEventListener('error', onWinError, true);
+    window.addEventListener('unhandledrejection', onUnhandledRejection);
+}
+
+function detachGlobalHooks() {
+    // отписка после done (mode=1)
+    try { window.removeEventListener('error', onWinError, true); } catch (_) {}
+    try { window.removeEventListener('unhandledrejection', onUnhandledRejection); } catch (_) {}
+}
+
+function finalizeLoggingAfterDone() {
+    if (LOG_MODE === 1) {
+        detachGlobalHooks();
+
+        // popup можно оставить как "фризнутый" и скрыть
         safe(function () { if (popupEl) popupEl.style.display = 'none'; });
     }
+}
 
-    if (!LOG_OFF) {
-        safe(function () { window.addEventListener('error', onWindowError, true); });
-        safe(function () { window.addEventListener('unhandledrejection', onUnhandledRejection); });
+// ============================================================================
+// popup early-create (body-late safe)
+// ============================================================================
+safe(function () {
+    if (LOG_MODE === 0) return;
+    if (!document || !document.documentElement) return;
+
+    var mo = new MutationObserver(function () {
+        if (document.body && !popupEl) {
+            ensurePopup();
+            safe(function () { if (popupEl) popupEl.style.display = 'none'; });
+        }
+    });
+    mo.observe(document.documentElement, { childList: true, subtree: true });
+});
+
+// ============================================================================
+// MAIN
+// ============================================================================
+function start() {
+    patchBlockNetwork();
+
+    if (LOG_MODE !== 0) {
+        attachGlobalHooks();
+        safe(function () { var el = ensurePopup(); if (el) el.style.display = 'none'; });
+        showInfo('AutoPlugin', 'start', 'mode=' + String(LOG_MODE));
     }
 
-    // TV: body late -> create popup later (only if logging enabled)
-    if (!LOG_OFF) {
-        safe(function () {
-            if (!document || !document.documentElement) return;
-            var mo = new MutationObserver(function () {
-                if (document.body && !popupEl) {
-                    ensurePopup();
-                    safe(function () { if (popupEl) popupEl.style.display = 'none'; });
-                }
-            });
-            mo.observe(document.documentElement, { childList: true, subtree: true });
+    waitLampa(function (ok) {
+        if (!ok) {
+            showWarn('Lampa', 'wait timeout', 'Lampa not detected');
+            finalizeLoggingAfterDone();
+            return;
+        }
+
+        safe(function () { var el = ensurePopup(); if (el) el.style.display = 'none'; });
+
+        // именно "вшиваем" в Lampa и инжектим только новые
+        ensureInstalledAll(PLUGINS).then(function () {
+            showOk('AutoPlugin', 'done', 'total=' + String(PLUGINS.length));
+
+            // КЛЮЧЕВОЕ: mode=1 -> отписка от window событий после done
+            finalizeLoggingAfterDone();
         });
-    }
+    });
+}
 
-    // =========================================================================
-    // START
-    // =========================================================================
+start();
 
-    async function start() {
-        // always enable network policy
-        patchBlockNetwork();
-
-        if (!LOG_OFF) {
-            safe(function () { var el = ensurePopup(); if (el) el.style.display = 'none'; });
-        }
-
-        await waitLampa();
-
-        if (!LOG_OFF) {
-            safe(function () { var el2 = ensurePopup(); if (el2) el2.style.display = 'none'; });
-        }
-
-        for (var i = 0; i < PLUGINS.length; i++) {
-            var url = PLUGINS[i];
-            try {
-                var r = await load(url);
-                safe(function () { if (!LOG_OFF) console.log('[[AutoPlugin]]', r.ok ? 'OK' : 'FAIL', r.why, r.url); });
-                if (!r.ok) { if (!LOG_OFF) showError(r.url, 'LOAD FAIL', r.why); }
-                else { if (!LOG_OFF) showOk(r.url, 'loaded', r.why); }
-            } catch (e) {
-                safe(function () { if (!LOG_OFF) console.log('[[AutoPlugin]] FAIL exception', url, e); });
-                if (!LOG_OFF) showError(url, 'LOAD LOOP EXCEPTION', fmtErr(e));
-            }
-        }
-
-        if (!LOG_OFF) showOk('AutoPlugin', 'done', 'total=' + String(PLUGINS.length));
-
-        // BOOT mode: after done -> detach window listeners and stop all logging
-        if (LOG_BOOT_ONLY) {
-            disableMonitoring();
-        }
-    }
-
-    start();
 })();
