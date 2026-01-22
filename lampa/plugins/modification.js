@@ -46,13 +46,14 @@
     // список автоплагинов (НЕ УДАЛЯЮ закомментированные — оставляю как есть)
     // =========================================================================
     const PLUGINS = [
+        "https://bdvburik.github.io/title.js",
         // "http://skaz.tv/onlines.js",
         // "http://skaz.tv/vcdn.js",
         // "https://netfix.cc/netfix.js",
         // "https://and7ey.github.io/lampa/stats.js",
         "https://and7ey.github.io/lampa/head_filter.js",
         "https://and7ey.github.io/lampa/noshots.js",
-        //"https://andreyurl54.github.io/diesel5/tricks.js",
+        "https://andreyurl54.github.io/diesel5/tricks.js",
 
         // "https://bylampa.github.io/redirect.js",
         // "https://bylampa.github.io/trailer_off.js",
@@ -66,16 +67,17 @@
 
         "https://bywolf88.github.io/lampa-plugins/interface_mod.js",
 
-        "https://bdvburik.github.io/title.js",
         //sources...
         "https://tsynik.github.io/lampa/e.js",
         // "https://bwa.to/rc",
         "https://bwa.to/cloud.js",
 
+        "https://lampa.stream/modss",
+
         "https://nb557.github.io/plugins/online_mod.js",
 
         "https://skaztv.online/store.js",
-        "https://skaztv.online/js/tricks.js",
+        //"https://skaztv.online/js/tricks.js",
 
         "https://aviamovie.github.io/surs.js",
         // "https://amiv1.github.io/lampa/rating.js",
