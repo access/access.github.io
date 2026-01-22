@@ -40,7 +40,8 @@
 
     // ===== popup ===============================================================
 
-    const POPUP_MS = 20_000;
+    // ВАЖНО ДЛЯ ТВ: никаких numeric separators (20_000) — на старых движках это SyntaxError и весь скрипт не запускается.
+    const POPUP_MS = 20000;
     const MAX_LINES = 120;
 
     let popupEl = null;
@@ -56,17 +57,17 @@
         'DBG': { color: '#8c8c8c' }  // gray
     };
 
-    // IMPORTANT: фикс "прыгающего" шрифта/лейаута:
-    // - одинаковый font-weight для всех строк (не bold на отдельных)
-    // - стабильный скроллбар (scrollbar-gutter)
-    // - моноширинный стек ближе к Linux-терминалу
+    // IMPORTANT: фикс "прыгающего" шрифта/лейаута + совместимость
     const POPUP_FONT = '12px/1.35 "DejaVu Sans Mono","Liberation Mono","Ubuntu Mono","Noto Sans Mono",Consolas,Menlo,Monaco,monospace';
+
+    // гарантированно не валим рантайм, даже если браузер на ТВ капризный
+    function safe(fn) { try { return fn(); } catch (_) { return null; } }
 
     function ensurePopup() {
         if (popupEl) return popupEl;
 
         // если body ещё нет — не создаём, просто подождём (лог в очередь уже попадёт)
-        if (!document.body) return null;
+        if (!document || !document.body) return null;
 
         const el = document.createElement('div');
         el.id = '__autoplugin_popup';
@@ -92,13 +93,19 @@
 'white-space:pre-wrap',
 'word-break:break-word',
 'overflow:auto',
-'scrollbar-gutter:stable both-edges', // чтобы не дёргалось при появлении скролла
 'box-shadow:0 10px 30px rgba(0,0,0,0.35)'
+// scrollbar-gutter НЕ везде поддерживается; добавлять можно, но не критично.
+// 'scrollbar-gutter:stable both-edges'
         ].join(';');
 
         const title = document.createElement('div');
         title.id = '__autoplugin_popup_title';
-        title.style.cssText = 'font-weight:700;margin-bottom:6px;opacity:.95';
+        title.style.cssText = [
+            'font:' + POPUP_FONT,
+            'font-weight:700',
+            'margin-bottom:6px',
+            'opacity:.95'
+        ].join(';');
         title.textContent = 'AutoPlugin log';
 
         const body = document.createElement('div');
@@ -109,6 +116,9 @@
         document.body.appendChild(el);
 
         popupEl = el;
+
+        // если что-то уже накопилось — отрисуем сразу
+        safe(function () { renderPopup(); });
         return el;
     }
 
@@ -116,7 +126,7 @@
         try {
             if (!e) return 'unknown error';
             if (typeof e === 'string') return e;
-            if (e.message) return e.message;
+            if (e && e.message) return e.message;
             return String(e);
         } catch (_) {
             return 'unknown error';
@@ -132,6 +142,13 @@
         }
     }
 
+    // совместимость: никаких replaceChildren (не везде есть)
+    function clearNode(node) {
+        try {
+            while (node && node.firstChild) node.removeChild(node.firstChild);
+        } catch (_) {}
+    }
+
     function renderPopup() {
         const el = ensurePopup();
         if (!el) return;
@@ -139,15 +156,18 @@
         const body = el.querySelector('#__autoplugin_popup_body');
         if (!body) return;
 
+        // !!! на ТВ часто именно тут падало из-за replaceChildren/прочего
+        clearNode(body);
+
         const frag = document.createDocumentFragment();
 
-        for (const line of popupQueue) {
+        for (let i = 0; i < popupQueue.length; i++) {
+            const line = popupQueue[i];
             const tag = parseTag(line);
 
             const row = document.createElement('div');
             row.textContent = line;
 
-            // общий стабильный стиль строки
             row.style.cssText = [
                 'font:' + POPUP_FONT,
                 'font-weight:500',
@@ -155,33 +175,28 @@
                 'padding:0'
             ].join(';');
 
-            // цвет по тегу (без смены жирности -> меньше "прыжков")
-            if (tag && TAG_STYLE[tag]) {
-                row.style.color = TAG_STYLE[tag].color;
-            }
+            if (tag && TAG_STYLE[tag]) row.style.color = TAG_STYLE[tag].color;
 
             frag.appendChild(row);
         }
 
-        // replaceChildren стабильнее, чем innerHTML=''
-        body.replaceChildren(frag);
+        body.appendChild(frag);
     }
 
     function pushPopupLine(line) {
         popupQueue.push(line);
         while (popupQueue.length > MAX_LINES) popupQueue.shift();
 
-        renderPopup();
+        safe(function () { renderPopup(); });
 
         const el = ensurePopup();
         if (!el) return;
 
-        // ВАЖНО: попап будет снова всплывать при ЛЮБОЙ новой строке (ошибка/варн/инфо),
-        // даже если он уже был скрыт таймером.
+        // попап снова всплывает на любую новую запись
         el.style.display = 'block';
 
         if (popupTimer) clearTimeout(popupTimer);
-        popupTimer = setTimeout(() => {
+        popupTimer = setTimeout(function () {
             if (popupEl) popupEl.style.display = 'none';
         }, POPUP_MS);
     }
@@ -198,27 +213,33 @@
     function showInfo(source, message, extra)  { showLine('INF', source, message, extra); }
     function showDbg(source, message, extra)   { showLine('DBG', source, message, extra); }
 
-    // ===== BLOCK NETWORK (YANDEX + GOOGLE/YOUTUBE + STATS) =====================
+
+    // ===== BLOCK NETWORK (YANDEX + GOOGLE/YOUTUBE + STATS + BWA CORS CHECK) =====
 
     // 1) Yandex
     const BLOCK_YANDEX_RE =
     /(^|\.)((yandex\.(ru|com|net|by|kz|ua|uz|tm|tj))|(ya\.ru)|(yastatic\.net)|(yandex\.(net|com)\.tr))$/i;
 
     // 2) Google / YouTube
-    // FIX: JS НЕ поддерживает флаг /x, поэтому regexp должен быть в одну строку без "красивых" переносов.
     const BLOCK_GOOGLE_YT_RE =
-    /(^|\.)(google\.com|google\.[a-z.]+|gstatic\.com|googlesyndication\.com|googleadservices\.com|doubleclick\.net|googletagmanager\.com|google-analytics\.com|analytics\.google\.com|api\.google\.com|accounts\.google\.com|recaptcha\.net|youtube\.com|ytimg\.com|googlevideo\.com|youtu\.be|youtube-nocookie\.com)$/i;
+    /(^|\.)((google\.com)|(google\.[a-z.]+)|(gstatic\.com)|(googlesyndication\.com)|(googleadservices\.com)|(doubleclick\.net)|(googletagmanager\.com)|(google-analytics\.com)|(analytics\.google\.com)|(api\.google\.com)|(accounts\.google\.com)|(recaptcha\.net)|(youtube\.com)|(ytimg\.com)|(googlevideo\.com)|(youtu\.be)|(youtube-nocookie\.com))$/i;
 
-    // 3) “Statistics / telemetry” (часто встречаемые трекеры)
-    // FIX: тоже без /x
+    // 3) “Statistics / telemetry”
     const BLOCK_STATS_RE =
-    /(^|\.)(scorecardresearch\.com|quantserve\.com|cdn\.quantserve\.com|hotjar\.com|static\.hotjar\.com|mixpanel\.com|api\.mixpanel\.com|sentry\.io|o\d+\.ingest\.sentry\.io|datadoghq\.com|segment\.com|api\.segment\.io|amplitude\.com|api\.amplitude\.com|branch\.io|app-measurement\.com)$/i;
+    /(^|\.)((scorecardresearch\.com)|(quantserve\.com)|(cdn\.quantserve\.com)|(hotjar\.com)|(static\.hotjar\.com)|(mixpanel\.com)|(api\.mixpanel\.com)|(sentry\.io)|(o\d+\.ingest\.sentry\.io)|(datadoghq\.com)|(segment\.com)|(api\.segment\.io)|(amplitude\.com)|(api\.amplitude\.com)|(branch\.io)|(app-measurement\.com))$/i;
 
-    // 4) special-path block: bwa.to/cors/check (как попросил)
-    // (host = bwa.to, path начинается с /cors/check)
+    // 4) special-path block: */cors/check на доменах bwa.to (включая rc.bwa.to)
     function isBwaCorsCheck(url) {
         try {
-            return (url.hostname.toLowerCase() === 'bwa.to' && String(url.pathname || '').toLowerCase().startsWith('/cors/check'));
+            const host = String(url.hostname || '').toLowerCase();
+            const path = String(url.pathname || '').toLowerCase();
+
+            // host: bwa.to или *.bwa.to
+            const isBwa = (host === 'bwa.to') || (host.length > 7 && host.slice(host.length - 7) === '.bwa.to');
+            if (!isBwa) return false;
+
+            // path starts with /cors/check (без startsWith для старых движков)
+            return path.indexOf('/cors/check') === 0;
         } catch (_) {
             return false;
         }
@@ -228,7 +249,7 @@
         try {
             if (!url) return null;
 
-            // PATH-based блок (приоритетнее доменных правил)
+            // PATH-based блок — приоритетнее
             if (isBwaCorsCheck(url)) return 'BWA:CORS';
 
             const h = String(url.hostname || '').toLowerCase();
@@ -249,7 +270,6 @@
             if (!u) return null;
             const url = new URL(String(u), location.href);
 
-            // блок только сетевые протоколы
             if (url.protocol !== 'http:' && url.protocol !== 'https:') return null;
 
             return classifyBlocked(url);
@@ -261,7 +281,6 @@
     function logBlocked(u, where, why) {
         const label = (why || 'Blocked');
 
-        // цветной лог в консоль
         try {
             const badge =
             label === 'Yandex' ? 'background:#ff2d55' :
@@ -310,7 +329,7 @@
 
             XHR.prototype.open = function (method, url) {
                 this.__ap_url = url;
-                this.__ap_block_reason = isBlockedUrl(url); // null или "Yandex"/...
+                this.__ap_block_reason = isBlockedUrl(url);
                 return origOpen.apply(this, arguments);
             };
 
@@ -321,10 +340,10 @@
                     logBlocked(u, 'XHR', why);
 
                     const xhr = this;
-                    setTimeout(() => {
-                        try { xhr.onerror && xhr.onerror(new Error('Blocked by policy: ' + why)); } catch (_) {}
-                        try { xhr.onreadystatechange && xhr.onreadystatechange(); } catch (_) {}
-                        try { xhr.dispatchEvent && xhr.dispatchEvent(new Event('error')); } catch (_) {}
+                    setTimeout(function () {
+                        try { if (xhr.onerror) xhr.onerror(new Error('Blocked by policy: ' + why)); } catch (_) {}
+                        try { if (xhr.onreadystatechange) xhr.onreadystatechange(); } catch (_) {}
+                        try { if (xhr.dispatchEvent) xhr.dispatchEvent(new Event('error')); } catch (_) {}
                     }, 0);
                     return;
                 }
@@ -345,7 +364,7 @@
             };
         }
 
-        // WebSocket (редко, но пусть будет)
+        // WebSocket
         if (window.WebSocket) {
             const OrigWS = window.WebSocket;
             window.WebSocket = function (url, protocols) {
@@ -354,7 +373,7 @@
                     logBlocked(url, 'WebSocket', why);
                     throw new Error('Blocked by policy: ' + why);
                 }
-                return protocols !== undefined ? new OrigWS(url, protocols) : new OrigWS(url);
+                return (protocols !== undefined) ? new OrigWS(url, protocols) : new OrigWS(url);
             };
             window.WebSocket.prototype = OrigWS.prototype;
         }
@@ -362,23 +381,22 @@
         showOk('policy', 'Network block installed', 'Yandex + Google/YouTube + Statistics + BWA:CORS(/cors/check)');
     }
 
+
     // ===== script loader (HARDENED) ============================================
 
-    const LOAD_TIMEOUT_MS = 15_000;
-
-    // map current "executing plugin" (best-effort)
+    const LOAD_TIMEOUT_MS = 15000;
     let currentPlugin = null;
 
     function load(url) {
-        return new Promise((resolve) => {
+        return new Promise(function (resolve) {
             let done = false;
 
-            const finish = (ok, why) => {
+            function finish(ok, why) {
                 if (done) return;
                 done = true;
                 currentPlugin = null;
-                resolve({ ok, why: why || (ok ? 'ok' : 'fail'), url });
-            };
+                resolve({ ok: ok, why: why || (ok ? 'ok' : 'fail'), url: url });
+            }
 
             try {
                 currentPlugin = url;
@@ -394,18 +412,18 @@
                 s.src = url;
                 s.async = true;
 
-                const t = setTimeout(() => {
+                const t = setTimeout(function () {
                     try { s.onload = null; s.onerror = null; } catch (_) {}
-                    showError(url, 'LOAD TIMEOUT', `${LOAD_TIMEOUT_MS}ms`);
+                    showError(url, 'LOAD TIMEOUT', String(LOAD_TIMEOUT_MS) + 'ms');
                     finish(false, 'timeout');
                 }, LOAD_TIMEOUT_MS);
 
-                s.onload = () => {
+                s.onload = function () {
                     clearTimeout(t);
                     finish(true, 'onload');
                 };
 
-                s.onerror = () => {
+                s.onerror = function () {
                     clearTimeout(t);
                     showError(url, 'LOAD FAIL', 'script.onerror');
                     finish(false, 'onerror');
@@ -422,69 +440,82 @@
     async function waitLampa() {
         for (let i = 0; i < 120; i++) {
             if (window.Lampa && window.Lampa.Listener) return true;
-            await new Promise(r => setTimeout(r, 500));
+            await new Promise(function (r) { setTimeout(r, 500); });
         }
         showWarn('Lampa', 'wait timeout', 'Lampa not detected');
         return false;
     }
 
+
     // ===== global error hooks ==================================================
-    // Это остаётся висеть ПОСТОЯННО, так что если позже снова возникнут ошибки/анхендлед —
-    // pop-up снова всплывёт (pushPopupLine всегда делает display=block).
-    window.addEventListener('error', (ev) => {
+    window.addEventListener('error', function (ev) {
         try {
             const msg = ev && ev.message ? ev.message : 'error';
             const file = ev && ev.filename ? ev.filename : '(no file)';
             const line = (ev && typeof ev.lineno === 'number') ? ev.lineno : '?';
             const col  = (ev && typeof ev.colno === 'number') ? ev.colno : '?';
-            const stack = ev && ev.error && ev.error.stack ? ev.error.stack.split('\n')[0] : '';
+            const stack = (ev && ev.error && ev.error.stack) ? String(ev.error.stack).split('\n')[0] : '';
 
             const src =
-            (file && PLUGINS.some(p => file.includes(p))) ? file :
-            (file && PLUGINS.some(p => p.includes(file))) ? file :
+            (file && PLUGINS.some(function (p) { return file.indexOf(p) !== -1; })) ? file :
+            (file && PLUGINS.some(function (p) { return p.indexOf(file) !== -1; })) ? file :
             (currentPlugin || file);
 
-            showError(src, msg, `${file}:${line}:${col}${stack ? ` | ${stack}` : ''}`);
+            showError(src, msg, String(file) + ':' + String(line) + ':' + String(col) + (stack ? (' | ' + stack) : ''));
         } catch (_) {}
     }, true);
 
-    window.addEventListener('unhandledrejection', (ev) => {
+    window.addEventListener('unhandledrejection', function (ev) {
         try {
             const reason = ev && ev.reason ? ev.reason : 'unhandled rejection';
             const msg = fmtErr(reason);
-            const stack = reason && reason.stack ? reason.stack.split('\n')[0] : '';
+            const stack = (reason && reason.stack) ? String(reason.stack).split('\n')[0] : '';
             showError(currentPlugin || 'Promise', msg, stack);
         } catch (_) {}
     });
 
+
     // ===== main ================================================================
+
+    // на ТВ часто: тело появляется поздно, а лог уже идёт — ловим момент появления body и создаём попап + перерисуем очередь
+    safe(function () {
+        if (!document || !document.documentElement) return;
+        const mo = new MutationObserver(function () {
+            if (document.body && !popupEl) {
+                ensurePopup();
+                safe(function () { if (popupEl) popupEl.style.display = 'none'; });
+            }
+        });
+        mo.observe(document.documentElement, { childList: true, subtree: true });
+    });
 
     async function start() {
         // ставим политику блокировок СРАЗУ (чтобы плагины тоже были под ней)
         patchBlockNetwork();
 
         // пробуем создать попап пораньше (если body уже есть)
-        try { const el = ensurePopup(); if (el) el.style.display = 'none'; } catch (_) {}
+        safe(function () { const el = ensurePopup(); if (el) el.style.display = 'none'; });
 
         await waitLampa();
 
         // ещё раз гарантируем, что попап реально создан
-        try { const el = ensurePopup(); if (el) el.style.display = 'none'; } catch (_) {}
+        safe(function () { const el = ensurePopup(); if (el) el.style.display = 'none'; });
 
         // загрузка плагинов: не прерывается даже при ошибках
-        for (const url of PLUGINS) {
+        for (let i = 0; i < PLUGINS.length; i++) {
+            const url = PLUGINS[i];
             try {
                 const r = await load(url); // {ok, why, url}
-                console.log('[AutoPlugin]', r.ok ? 'OK' : 'FAIL', r.why, r.url);
+                try { console.log('[[AutoPlugin]]', r.ok ? 'OK' : 'FAIL', r.why, r.url); } catch (_) {}
                 if (!r.ok) showError(r.url, 'LOAD FAIL', r.why);
                 else showOk(r.url, 'loaded', r.why);
             } catch (e) {
-                console.log('[AutoPlugin] FAIL exception', url, e);
+                try { console.log('[[AutoPlugin]] FAIL exception', url, e); } catch (_) {}
                 showError(url, 'LOAD LOOP EXCEPTION', fmtErr(e));
             }
         }
 
-        showOk('AutoPlugin', 'done', `total=${PLUGINS.length}`);
+        showOk('AutoPlugin', 'done', 'total=' + String(PLUGINS.length));
     }
 
     start();
