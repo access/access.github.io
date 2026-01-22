@@ -2,105 +2,124 @@
     'use strict';
 
     // =========================================================================
-    // LOG MODES (3 режима)
-    // 0 = OFF            -> вообще без логов/попапа/ивентов/хуков
-    // 1 = BOOT-ONLY      -> лог только до "AutoPlugin done", потом отключаем слежение (events/hooks)
-    // 2 = FULL           -> лог всегда (как сейчас)
+    // LOG MODES
+    //   0 = OFF  : no popup, no console spam, no window event hooks
+    //   1 = BOOT : log only during plugin loading; after "AutoPlugin done" -> removeEventListener(...)
+    //   2 = FULL : keep logging forever (current behavior)
     //
-    // Можно переключать так:
-    //   1) константой LOG_MODE_DEFAULT
-    //   2) через URL:  ?aplog=0|1|2
-    //   3) через localStorage: localStorage.setItem('aplog','0|1|2')
+    // Control via URL:
+    //   ?aplog=0|1|2        (one-shot for this run)
+    //   ?aplog_set=0|1|2    (persist to localStorage)
     //
-    // Приоритет: URL -> localStorage -> default
+    // Examples:
+    //   https://access.github.io/lampa/?aplog=0
+    //   https://access.github.io/lampa/?aplog=1
+    //   https://access.github.io/lampa/?aplog=2
+    //   https://access.github.io/lampa/?aplog_set=1
     // =========================================================================
-    const LOG_MODE_DEFAULT = 1;
 
-    function getLogMode() {
+    function safe(fn) { try { return fn(); } catch (_) { return null; } }
+
+    function getQuery(name) {
         try {
-            // URL param: aplog=0|1|2
-            try {
-                const u = new URL(location.href);
-                const qp = u.searchParams && u.searchParams.get ? u.searchParams.get('aplog') : null;
-                if (qp === '0' || qp === '1' || qp === '2') return parseInt(qp, 10);
-            } catch (_) {}
-
-            // localStorage: aplog=0|1|2
-            try {
-                const ls = window.localStorage && window.localStorage.getItem ? window.localStorage.getItem('aplog') : null;
-                if (ls === '0' || ls === '1' || ls === '2') return parseInt(ls, 10);
-            } catch (_) {}
-
-            return LOG_MODE_DEFAULT;
+            var s = String(location.search || '');
+            if (!s) return null;
+            s = s.charAt(0) === '?' ? s.substring(1) : s;
+            var parts = s.split('&');
+            for (var i = 0; i < parts.length; i++) {
+                var kv = parts[i].split('=');
+                if (kv[0] === name) return kv.length > 1 ? decodeURIComponent(kv[1] || '') : '';
+            }
+            return null;
         } catch (_) {
-            return LOG_MODE_DEFAULT;
+            return null;
         }
     }
 
-    const LOG_MODE = getLogMode();
-    const LOG_OFF = (LOG_MODE === 0);
-    const LOG_BOOT_ONLY = (LOG_MODE === 1);
-    const LOG_FULL = (LOG_MODE === 2);
+    function parseMode(v) {
+        var n = parseInt(String(v), 10);
+        if (n === 0 || n === 1 || n === 2) return n;
+        return null;
+    }
+
+    var MODE = (function () {
+        // persist setter
+        var setv = parseMode(getQuery('aplog_set'));
+        if (setv !== null) {
+            safe(function () { localStorage.setItem('aplog', String(setv)); });
+        }
+
+        // one-shot mode
+        var q = parseMode(getQuery('aplog'));
+        if (q !== null) return q;
+
+        // persisted mode
+        var st = safe(function () { return localStorage.getItem('aplog'); });
+        var ps = parseMode(st);
+        if (ps !== null) return ps;
+
+        // default
+        return 1; // BOOT default is best for TV performance
+    })();
+
+    var LOG_OFF = (MODE === 0);
+    var LOG_BOOT_ONLY = (MODE === 1);
 
     // =========================================================================
-    // список автоплагинов (НЕ УДАЛЯЮ закомментированные — оставляю как есть)
+    // PLUGINS LIST (НЕ УДАЛЯЮ закомментированные)
     // =========================================================================
-    const PLUGINS = [
-        // "https://bdvburik.github.io/title.js",
-        "https://bywolf88.github.io/lampa-plugins/interface_mod.js",
-        "scripts/rating.js",
+    var PLUGINS = [
         // "http://skaz.tv/onlines.js",
         // "http://skaz.tv/vcdn.js",
         // "https://netfix.cc/netfix.js",
-        // "https://and7ey.github.io/lampa/stats.js",
+        "https://tsynik.github.io/lampa/e.js",
+        "https://and7ey.github.io/lampa/stats.js",
         "https://and7ey.github.io/lampa/head_filter.js",
         "https://and7ey.github.io/lampa/noshots.js",
         //"https://andreyurl54.github.io/diesel5/tricks.js",
 
-        // "https://bylampa.github.io/redirect.js",
-        // "https://bylampa.github.io/trailer_off.js",
-        // "https://bylampa.github.io/color_vote.js",
+        "https://bylampa.github.io/redirect.js",
+        "https://bylampa.github.io/trailer_off.js",
+        "https://bylampa.github.io/color_vote.js",
         "https://bylampa.github.io/seas_and_eps.js",
-        // "https://bylampa.github.io/old_card_status.js",
-        // "https://bylampa.github.io/backmenu.js",
+        "https://bylampa.github.io/old_card_status.js",
+        "https://bylampa.github.io/backmenu.js",
         "https://bylampa.github.io/cub_off.js",
-        // "https://bylampa.github.io/addon.js",
-
-
-        //sources...
-        "https://tsynik.github.io/lampa/e.js",
         "https://bylampa.github.io/source.js",
+        "https://bylampa.github.io/addon.js",
 
-        //players
-        "https://nb557.github.io/plugins/online_mod.js",
-        "https://lampa.stream/modss",
+        "https://bdvburik.github.io/title.js",
+        "https://bywolf88.github.io/lampa-plugins/interface_mod.js",
+
         // "https://bwa.to/rc",
         "https://bwa.to/cloud.js",
 
+        "https://nb557.github.io/plugins/online_mod.js",
 
         "https://skaztv.online/store.js",
         "https://skaztv.online/js/tricks.js",
 
-        "https://amikdn.github.io/buttons.js",
-        "https://aviamovie.github.io/surs.js"
         // "https://amiv1.github.io/lampa/rating.js",
+        "scripts/rating.js",
 
+        "https://amikdn.github.io/buttons.js"
     ];
 
     // =========================================================================
-    // popup (только если LOG_MODE != 0)
+    // POPUP (PERF: incremental append + throttled flush)
     // =========================================================================
-    const POPUP_MS = 20000;
-    const MAX_LINES = 120;
 
-    let popupEl = null;
-    let popupTimer = null;
+    var POPUP_MS = 20000;
+    var MAX_LINES = 120;
 
-    const popupQueue = []; // { line, tag, key, ts, count }
-    let popupBodyEl = null;
-    let renderedCount = 0;
+    var popupEl = null;
+    var popupTimer = null;
 
-    const TAG_STYLE = {
+    var popupQueue = []; // { line, tag, key, ts, count }
+    var popupBodyEl = null;
+    var renderedCount = 0;
+
+    var TAG_STYLE = {
         'ERR': { color: '#ff4d4f' },
         'WRN': { color: '#ffa940' },
         'OK ': { color: '#52c41a' },
@@ -108,16 +127,14 @@
         'DBG': { color: '#8c8c8c' }
     };
 
-    const POPUP_FONT = '12px/1.35 Courier, "Courier New", monospace';
-
-    function safe(fn) { try { return fn(); } catch (_) { return null; } }
+    // проще и максимально совместимо для ТВ
+    var POPUP_FONT = '12px/1.35 Courier, "Courier New", monospace';
 
     function ensurePopup() {
-        if (LOG_OFF) return null;
         if (popupEl) return popupEl;
         if (!document || !document.body) return null;
 
-        const el = document.createElement('div');
+        var el = document.createElement('div');
         el.id = '__autoplugin_popup';
         el.style.cssText = [
             'all:initial',
@@ -129,25 +146,25 @@
             'right:12px',
             'bottom:12px',
             'z-index:2147483647',
-            'background:rgba(0,0,0,0.33)',
-            'color:#fff',
-            'border-radius:12px',
-            'padding:10px 12px',
-            'box-sizing:border-box',
-            'font:' + POPUP_FONT,
-            'font-weight:500',
-            'font-variant-ligatures:none',
-            'letter-spacing:0',
-            '-webkit-font-smoothing:antialiased',
-            'text-rendering:optimizeSpeed',
-            'pointer-events:none',
-            'white-space:pre-wrap',
-            'word-break:break-word',
-            'overflow:auto',
-            'box-shadow:0 10px 30px rgba(0,0,0,0.25)'
+            'background:rgba(0,0,0,0.44)',
+ 'color:#fff',
+ 'border-radius:12px',
+ 'padding:10px 12px',
+ 'box-sizing:border-box',
+ 'font:' + POPUP_FONT,
+ 'font-weight:500',
+ 'font-variant-ligatures:none',
+ 'letter-spacing:0',
+ '-webkit-font-smoothing:antialiased',
+ 'text-rendering:optimizeSpeed',
+ 'pointer-events:none',
+ 'white-space:pre-wrap',
+ 'word-break:break-word',
+ 'overflow:auto',
+ 'box-shadow:0 10px 30px rgba(0,0,0,0.25)'
         ].join(';');
 
-        const title = document.createElement('div');
+        var title = document.createElement('div');
         title.id = '__autoplugin_popup_title';
         title.style.cssText = [
             'font:' + POPUP_FONT,
@@ -155,9 +172,9 @@
             'margin-bottom:6px',
             'opacity:.95'
         ].join(';');
-        title.textContent = 'AutoPlugin log (mode=' + String(LOG_MODE) + ')';
+        title.textContent = 'AutoPlugin log (mode=' + String(MODE) + ')';
 
-        const body = document.createElement('div');
+        var body = document.createElement('div');
         body.id = '__autoplugin_popup_body';
 
         el.appendChild(title);
@@ -183,33 +200,25 @@
         }
     }
 
-    function parseTagFromLine(line) {
-        try {
-            const m = String(line).match(/^\[[^\]]+\]\s(.{3})\s/);
-            return m ? m[1] : '';
-        } catch (_) { return ''; }
-    }
-
     function clearNode(node) {
         try { while (node && node.firstChild) node.removeChild(node.firstChild); } catch (_) {}
     }
 
-    // ---- PERF: coalesce + throttled flush ----
-    const COALESCE_WINDOW_MS = 1500;
-    let lastKey = '';
-    let lastIdx = -1;
-    let lastTs = 0;
+    var COALESCE_WINDOW_MS = 1500;
+    var lastKey = '';
+    var lastIdx = -1;
+    var lastTs = 0;
 
-    const RATE_MAX_PER_SEC = 25;
-    let rateBucketTs = 0;
-    let rateBucketCount = 0;
+    var RATE_MAX_PER_SEC = 25;
+    var rateBucketTs = 0;
+    var rateBucketCount = 0;
 
     function makeKey(tag, source, message, extra) {
         return String(tag) + '|' + String(source) + '|' + String(message) + '|' + String(extra || '');
     }
 
     function rateAllow() {
-        const now = Date.now();
+        var now = Date.now();
         if (!rateBucketTs || (now - rateBucketTs) >= 1000) {
             rateBucketTs = now;
             rateBucketCount = 0;
@@ -223,13 +232,12 @@
         return line + '  ×' + String(count);
     }
 
-    let flushScheduled = false;
+    var flushScheduled = false;
     function schedulePopupFlush() {
-        if (LOG_OFF) return;
         if (flushScheduled) return;
         flushScheduled = true;
 
-        const runner = function () {
+        var runner = function () {
             flushScheduled = false;
             flushPopupToDom();
         };
@@ -239,7 +247,7 @@
     }
 
     function makeRow(entry) {
-        const row = document.createElement('div');
+        var row = document.createElement('div');
         row.textContent = entry.line;
         row.style.cssText = [
             'font:' + POPUP_FONT,
@@ -247,33 +255,27 @@
             'margin:0',
             'padding:0'
         ].join(';');
-
-        const tag = entry.tag;
+        var tag = entry.tag;
         if (tag && TAG_STYLE[tag]) row.style.color = TAG_STYLE[tag].color;
-
         return row;
     }
 
     function fullRebuild() {
-        if (LOG_OFF) return;
-        const el = ensurePopup();
+        var el = ensurePopup();
         if (!el || !popupBodyEl) return;
 
         clearNode(popupBodyEl);
 
-        const frag = document.createDocumentFragment();
-        for (let i = 0; i < popupQueue.length; i++) {
-            const e = popupQueue[i];
-            if (!e.tag) e.tag = parseTagFromLine(e.line);
-            frag.appendChild(makeRow(e));
+        var frag = document.createDocumentFragment();
+        for (var i = 0; i < popupQueue.length; i++) {
+            frag.appendChild(makeRow(popupQueue[i]));
         }
         popupBodyEl.appendChild(frag);
         renderedCount = popupQueue.length;
     }
 
     function flushPopupToDom() {
-        if (LOG_OFF) return;
-        const el = ensurePopup();
+        var el = ensurePopup();
         if (!el || !popupBodyEl) return;
 
         if (renderedCount > popupQueue.length) renderedCount = 0;
@@ -284,8 +286,8 @@
         }
 
         if (renderedCount < popupQueue.length) {
-            const frag = document.createDocumentFragment();
-            for (let i = renderedCount; i < popupQueue.length; i++) {
+            var frag = document.createDocumentFragment();
+            for (var i = renderedCount; i < popupQueue.length; i++) {
                 frag.appendChild(makeRow(popupQueue[i]));
             }
             popupBodyEl.appendChild(frag);
@@ -293,18 +295,19 @@
         }
 
         safe(function () {
-            const lastDom = popupBodyEl.lastChild;
-            const lastQ = popupQueue[popupQueue.length - 1];
-            if (lastDom && lastQ && lastDom.textContent !== lastQ.line) lastDom.textContent = lastQ.line;
+            var lastDom = popupBodyEl.lastChild;
+            var lastQ = popupQueue[popupQueue.length - 1];
+            if (lastDom && lastQ && lastDom.textContent !== lastQ.line) {
+                lastDom.textContent = lastQ.line;
+            }
         });
     }
 
     function showPopupNow() {
-        if (LOG_OFF) return;
-        const el = ensurePopup();
+        var el = ensurePopup();
         if (!el) return;
-
         el.style.display = 'block';
+
         if (popupTimer) clearTimeout(popupTimer);
         popupTimer = setTimeout(function () {
             if (popupEl) popupEl.style.display = 'none';
@@ -312,13 +315,11 @@
     }
 
     function pushPopupLine(line, tag, key) {
-        if (LOG_OFF) return;
-
         if (!rateAllow()) {
-            const now = Date.now();
+            var now = Date.now();
             if ((now - rateBucketTs) < 1000 && rateBucketCount === (RATE_MAX_PER_SEC + 1)) {
-                const ts = new Date().toLocaleTimeString();
-                const l = `[${ts}] WRN AutoPlugin: log rate limited | max=${RATE_MAX_PER_SEC}/s`;
+                var ts = new Date().toLocaleTimeString();
+                var l = '[' + ts + '] WRN AutoPlugin: log rate limited | max=' + String(RATE_MAX_PER_SEC) + '/s';
                 popupQueue.push({ line: l, tag: 'WRN', key: 'rate', ts: now, count: 1 });
                 while (popupQueue.length > MAX_LINES) { popupQueue.shift(); renderedCount = 0; }
                 schedulePopupFlush();
@@ -327,10 +328,10 @@
             return;
         }
 
-        const now = Date.now();
+        var now2 = Date.now();
 
-        if (key && key === lastKey && (now - lastTs) <= COALESCE_WINDOW_MS && lastIdx >= 0 && lastIdx < popupQueue.length) {
-            const e = popupQueue[lastIdx];
+        if (key && key === lastKey && (now2 - lastTs) <= COALESCE_WINDOW_MS && lastIdx >= 0 && lastIdx < popupQueue.length) {
+            var e = popupQueue[lastIdx];
             e.count = (e.count || 1) + 1;
             e.line = decorateLine(line, e.count);
             popupQueue[lastIdx] = e;
@@ -339,7 +340,7 @@
             return;
         }
 
-        popupQueue.push({ line: line, tag: tag || '', key: key || '', ts: now, count: 1 });
+        popupQueue.push({ line: line, tag: tag || '', key: key || '', ts: now2, count: 1 });
 
         while (popupQueue.length > MAX_LINES) {
             popupQueue.shift();
@@ -350,47 +351,33 @@
 
         lastKey = key || '';
         lastIdx = popupQueue.length - 1;
-        lastTs = now;
+        lastTs = now2;
 
         schedulePopupFlush();
         showPopupNow();
     }
 
-    function showLine(tag, source, message, extra) {
-        if (LOG_OFF) return;
-
-        const ts = new Date().toLocaleTimeString();
-        const line = `[${ts}] ${tag} ${source}: ${message}${extra ? ` | ${extra}` : ''}`;
-        const key = makeKey(tag, source, message, extra);
-
-        pushPopupLine(line, tag, key);
-    }
-
-    function showError(source, message, extra) { showLine('ERR', source, message, extra); }
-    function showWarn(source, message, extra)  { showLine('WRN', source, message, extra); }
-    function showOk(source, message, extra)    { showLine('OK ', source, message, extra); }
-    function showInfo(source, message, extra)  { showLine('INF', source, message, extra); }
-    function showDbg(source, message, extra)   { showLine('DBG', source, message, extra); }
-
     // =========================================================================
-    // NETWORK BLOCK (всегда включён; логирование зависит от LOG_MODE)
+    // NETWORK BLOCK
     // =========================================================================
 
-    const BLOCK_YANDEX_RE =
+    var BLOCK_YANDEX_RE =
     /(^|\.)((yandex\.(ru|com|net|by|kz|ua|uz|tm|tj))|(ya\.ru)|(yastatic\.net)|(yandex\.(net|com)\.tr))$/i;
 
-    const BLOCK_GOOGLE_YT_RE =
+    var BLOCK_GOOGLE_YT_RE =
     /(^|\.)((google\.com)|(google\.[a-z.]+)|(gstatic\.com)|(googlesyndication\.com)|(googleadservices\.com)|(doubleclick\.net)|(googletagmanager\.com)|(google-analytics\.com)|(analytics\.google\.com)|(api\.google\.com)|(accounts\.google\.com)|(recaptcha\.net)|(youtube\.com)|(ytimg\.com)|(googlevideo\.com)|(youtu\.be)|(youtube-nocookie\.com))$/i;
 
-    const BLOCK_STATS_RE =
+    var BLOCK_STATS_RE =
     /(^|\.)((scorecardresearch\.com)|(quantserve\.com)|(cdn\.quantserve\.com)|(hotjar\.com)|(static\.hotjar\.com)|(mixpanel\.com)|(api\.mixpanel\.com)|(sentry\.io)|(o\d+\.ingest\.sentry\.io)|(datadoghq\.com)|(segment\.com)|(api\.segment\.io)|(amplitude\.com)|(api\.amplitude\.com)|(branch\.io)|(app-measurement\.com))$/i;
 
     function isBwaCorsCheck(url) {
         try {
-            const host = String(url.hostname || '').toLowerCase();
-            const path = String(url.pathname || '').toLowerCase();
-            const isBwa = (host === 'bwa.to') || (host.length > 7 && host.slice(host.length - 7) === '.bwa.to');
+            var host = String(url.hostname || '').toLowerCase();
+            var path = String(url.pathname || '').toLowerCase();
+
+            var isBwa = (host === 'bwa.to') || (host.length > 7 && host.slice(host.length - 7) === '.bwa.to');
             if (!isBwa) return false;
+
             return path.indexOf('/cors/check') === 0;
         } catch (_) {
             return false;
@@ -403,7 +390,7 @@
 
             if (isBwaCorsCheck(url)) return 'BWA:CORS';
 
-            const h = String(url.hostname || '').toLowerCase();
+            var h = String(url.hostname || '').toLowerCase();
             if (!h) return null;
 
             if (BLOCK_YANDEX_RE.test(h)) return 'Yandex';
@@ -419,7 +406,7 @@
     function isBlockedUrl(u) {
         try {
             if (!u) return null;
-            const url = new URL(String(u), location.href);
+            var url = new URL(String(u), location.href);
             if (url.protocol !== 'http:' && url.protocol !== 'https:') return null;
             return classifyBlocked(url);
         } catch (_) {
@@ -428,20 +415,18 @@
     }
 
     function logBlocked(u, where, why) {
-        // логирование блокировок — только если лог включён (1/2)
         if (LOG_OFF) return;
+        var label = (why || 'Blocked');
 
-        const label = (why || 'Blocked');
-
-        try {
-            const badge =
+        safe(function () {
+            var badge =
             label === 'Yandex' ? 'background:#ff2d55' :
             label === 'Google/YouTube' ? 'background:#ff9500' :
             label === 'Statistics' ? 'background:#8e8e93' :
             label === 'BWA:CORS' ? 'background:#00c2ff' :
             'background:#ff2d55';
 
-            const txt =
+            var txt =
             label === 'Yandex' ? '#ff2d55' :
             label === 'Google/YouTube' ? '#ff9500' :
             label === 'Statistics' ? '#8e8e93' :
@@ -453,18 +438,17 @@
             badge + ';color:#fff;padding:2px 6px;border-radius:6px;font-weight:700',
             'color:' + txt
         );
-        } catch (_) {}
+        });
 
         showWarn(where, 'BLOCKED (' + label + ')', u);
     }
 
     function patchBlockNetwork() {
-        // fetch
         if (window.fetch) {
-            const origFetch = window.fetch.bind(window);
+            var origFetch = window.fetch.bind(window);
             window.fetch = function (input, init) {
-                const u = (typeof input === 'string') ? input : (input && input.url) ? input.url : '';
-                const why = isBlockedUrl(u);
+                var u = (typeof input === 'string') ? input : (input && input.url) ? input.url : '';
+                var why = isBlockedUrl(u);
                 if (why) {
                     logBlocked(u, 'fetch', why);
                     return Promise.reject(new TypeError('Blocked by policy: ' + why));
@@ -473,11 +457,10 @@
             };
         }
 
-        // XHR
         if (window.XMLHttpRequest) {
-            const XHR = window.XMLHttpRequest;
-            const origOpen = XHR.prototype.open;
-            const origSend = XHR.prototype.send;
+            var XHR = window.XMLHttpRequest;
+            var origOpen = XHR.prototype.open;
+            var origSend = XHR.prototype.send;
 
             XHR.prototype.open = function (method, url) {
                 this.__ap_url = url;
@@ -487,15 +470,15 @@
 
             XHR.prototype.send = function () {
                 if (this.__ap_block_reason) {
-                    const u = this.__ap_url;
-                    const why = this.__ap_block_reason;
+                    var u = this.__ap_url;
+                    var why = this.__ap_block_reason;
                     logBlocked(u, 'XHR', why);
 
-                    const xhr = this;
+                    var xhr = this;
                     setTimeout(function () {
-                        try { if (xhr.onerror) xhr.onerror(new Error('Blocked by policy: ' + why)); } catch (_) {}
-                        try { if (xhr.onreadystatechange) xhr.onreadystatechange(); } catch (_) {}
-                        try { if (xhr.dispatchEvent) xhr.dispatchEvent(new Event('error')); } catch (_) {}
+                        safe(function () { if (xhr.onerror) xhr.onerror(new Error('Blocked by policy: ' + why)); });
+                        safe(function () { if (xhr.onreadystatechange) xhr.onreadystatechange(); });
+                        safe(function () { if (xhr.dispatchEvent) xhr.dispatchEvent(new Event('error')); });
                     }, 0);
                     return;
                 }
@@ -503,11 +486,10 @@
             };
         }
 
-        // sendBeacon
         if (navigator.sendBeacon) {
-            const origBeacon = navigator.sendBeacon.bind(navigator);
+            var origBeacon = navigator.sendBeacon.bind(navigator);
             navigator.sendBeacon = function (url, data) {
-                const why = isBlockedUrl(url);
+                var why = isBlockedUrl(url);
                 if (why) {
                     logBlocked(url, 'sendBeacon', why);
                     return false;
@@ -516,11 +498,10 @@
             };
         }
 
-        // WebSocket
         if (window.WebSocket) {
-            const OrigWS = window.WebSocket;
+            var OrigWS = window.WebSocket;
             window.WebSocket = function (url, protocols) {
-                const why = isBlockedUrl(url);
+                var why = isBlockedUrl(url);
                 if (why) {
                     logBlocked(url, 'WebSocket', why);
                     throw new Error('Blocked by policy: ' + why);
@@ -534,15 +515,15 @@
     }
 
     // =========================================================================
-    // script loader (HARDENED)
+    // SCRIPT LOADER
     // =========================================================================
 
-    const LOAD_TIMEOUT_MS = 15000;
-    let currentPlugin = null;
+    var LOAD_TIMEOUT_MS = 15000;
+    var currentPlugin = null;
 
     function load(url) {
         return new Promise(function (resolve) {
-            let done = false;
+            var done = false;
 
             function finish(ok, why) {
                 if (done) return;
@@ -554,19 +535,19 @@
             try {
                 currentPlugin = url;
 
-                const blockReason = isBlockedUrl(url);
+                var blockReason = isBlockedUrl(url);
                 if (blockReason) {
                     logBlocked(url, 'script', blockReason);
                     finish(false, 'blocked:' + blockReason);
                     return;
                 }
 
-                const s = document.createElement('script');
+                var s = document.createElement('script');
                 s.src = url;
                 s.async = true;
 
-                const t = setTimeout(function () {
-                    try { s.onload = null; s.onerror = null; } catch (_) {}
+                var t = setTimeout(function () {
+                    safe(function () { s.onload = null; s.onerror = null; });
                     if (!LOG_OFF) showError(url, 'LOAD TIMEOUT', String(LOAD_TIMEOUT_MS) + 'ms');
                     finish(false, 'timeout');
                 }, LOAD_TIMEOUT_MS);
@@ -591,7 +572,7 @@
     }
 
     async function waitLampa() {
-        for (let i = 0; i < 120; i++) {
+        for (var i = 0; i < 120; i++) {
             if (window.Lampa && window.Lampa.Listener) return true;
             await new Promise(function (r) { setTimeout(r, 500); });
         }
@@ -600,54 +581,42 @@
     }
 
     // =========================================================================
-    // GLOBAL EVENT HOOKS (можно отключить после done)
+    // MODE-AWARE LOGGING + WINDOW EVENT HOOKS (removable)
     // =========================================================================
 
-    // будем уметь снять обработчики и "заморозить" лог
-    let monitoringEnabled = !LOG_OFF;   // OFF => false
-    let monitorBootOnly = LOG_BOOT_ONLY;
+    var monitoringEnabled = !LOG_OFF;
 
     function shouldLogNow() {
-        // 0: никогда
         if (LOG_OFF) return false;
-        // 1: пока monitoringEnabled=true (мы его выключим на done)
         if (LOG_BOOT_ONLY) return monitoringEnabled;
-        // 2: всегда
         return true;
     }
 
-    // обёртки, чтобы все show* сами уважали режим
     function showLineMode(tag, source, message, extra) {
         if (!shouldLogNow()) return;
-        const ts = new Date().toLocaleTimeString();
-        const line = `[${ts}] ${tag} ${source}: ${message}${extra ? ` | ${extra}` : ''}`;
-        const key = makeKey(tag, source, message, extra);
+        var ts = new Date().toLocaleTimeString();
+        var line = '[' + ts + '] ' + tag + ' ' + source + ': ' + message + (extra ? (' | ' + extra) : '');
+        var key = makeKey(tag, source, message, extra);
         pushPopupLine(line, tag, key);
     }
-    function showErrorM(source, message, extra) { showLineMode('ERR', source, message, extra); }
-    function showWarnM(source, message, extra)  { showLineMode('WRN', source, message, extra); }
-    function showOkM(source, message, extra)    { showLineMode('OK ', source, message, extra); }
-    function showInfoM(source, message, extra)  { showLineMode('INF', source, message, extra); }
-    function showDbgM(source, message, extra)   { showLineMode('DBG', source, message, extra); }
 
-    // переопределим внутренние show* на mode-aware, чтобы не ломать остальной код
-    showError = showErrorM;
-    showWarn  = showWarnM;
-    showOk    = showOkM;
-    showInfo  = showInfoM;
-    showDbg   = showDbgM;
+    // declare as vars so we can reassign below
+    var showError = function (s, m, e) { showLineMode('ERR', s, m, e); };
+    var showWarn  = function (s, m, e) { showLineMode('WRN', s, m, e); };
+    var showOk    = function (s, m, e) { showLineMode('OK ', s, m, e); };
+    var showInfo  = function (s, m, e) { showLineMode('INF', s, m, e); };
+    var showDbg   = function (s, m, e) { showLineMode('DBG', s, m, e); };
 
-    // handlers refs for removeEventListener
     function onWindowError(ev) {
         if (!shouldLogNow()) return;
         try {
-            const msg = ev && ev.message ? ev.message : 'error';
-            const file = ev && ev.filename ? ev.filename : '(no file)';
-            const line = (ev && typeof ev.lineno === 'number') ? ev.lineno : '?';
-            const col  = (ev && typeof ev.colno === 'number') ? ev.colno : '?';
-            const stack = (ev && ev.error && ev.error.stack) ? String(ev.error.stack).split('\n')[0] : '';
+            var msg = (ev && ev.message) ? ev.message : 'error';
+            var file = (ev && ev.filename) ? ev.filename : '(no file)';
+            var line = (ev && typeof ev.lineno === 'number') ? ev.lineno : '?';
+            var col  = (ev && typeof ev.colno === 'number') ? ev.colno : '?';
+            var stack = (ev && ev.error && ev.error.stack) ? String(ev.error.stack).split('\n')[0] : '';
 
-            const src =
+            var src =
             (file && PLUGINS.some(function (p) { return file.indexOf(p) !== -1; })) ? file :
             (file && PLUGINS.some(function (p) { return p.indexOf(file) !== -1; })) ? file :
             (currentPlugin || file);
@@ -659,44 +628,30 @@
     function onUnhandledRejection(ev) {
         if (!shouldLogNow()) return;
         try {
-            const reason = ev && ev.reason ? ev.reason : 'unhandled rejection';
-            const msg = fmtErr(reason);
-            const stack = (reason && reason.stack) ? String(reason.stack).split('\n')[0] : '';
+            var reason = (ev && ev.reason) ? ev.reason : 'unhandled rejection';
+            var msg = fmtErr(reason);
+            var stack = (reason && reason.stack) ? String(reason.stack).split('\n')[0] : '';
             showError(currentPlugin || 'Promise', msg, stack);
         } catch (_) {}
     }
 
-    function enableMonitoring() {
-        if (LOG_OFF) return;
-        if (monitoringEnabled) return;
-        monitoringEnabled = true;
-        try { window.addEventListener('error', onWindowError, true); } catch (_) {}
-        try { window.addEventListener('unhandledrejection', onUnhandledRejection); } catch (_) {}
-    }
-
     function disableMonitoring() {
         monitoringEnabled = false;
-        try { window.removeEventListener('error', onWindowError, true); } catch (_) {}
-        try { window.removeEventListener('unhandledrejection', onUnhandledRejection); } catch (_) {}
-        // попап можно сразу убрать, чтобы вообще не рисовался
+        safe(function () { window.removeEventListener('error', onWindowError, true); });
+        safe(function () { window.removeEventListener('unhandledrejection', onUnhandledRejection); });
         safe(function () { if (popupEl) popupEl.style.display = 'none'; });
     }
 
-    // включаем events сразу только если режим не OFF
     if (!LOG_OFF) {
-        try { window.addEventListener('error', onWindowError, true); } catch (_) {}
-        try { window.addEventListener('unhandledrejection', onUnhandledRejection); } catch (_) {}
+        safe(function () { window.addEventListener('error', onWindowError, true); });
+        safe(function () { window.addEventListener('unhandledrejection', onUnhandledRejection); });
     }
 
-    // =========================================================================
-    // main
-    // =========================================================================
-
-    // на ТВ: body появляется поздно — создадим попап когда появится (но только если лог включён)
+    // TV: body late -> create popup later (only if logging enabled)
     if (!LOG_OFF) {
         safe(function () {
             if (!document || !document.documentElement) return;
-            const mo = new MutationObserver(function () {
+            var mo = new MutationObserver(function () {
                 if (document.body && !popupEl) {
                     ensurePopup();
                     safe(function () { if (popupEl) popupEl.style.display = 'none'; });
@@ -706,37 +661,40 @@
         });
     }
 
+    // =========================================================================
+    // START
+    // =========================================================================
+
     async function start() {
-        // блокировки сети всегда ставим (даже если LOG_OFF)
+        // always enable network policy
         patchBlockNetwork();
 
-        // попап — только если лог включён
         if (!LOG_OFF) {
-            safe(function () { const el = ensurePopup(); if (el) el.style.display = 'none'; });
+            safe(function () { var el = ensurePopup(); if (el) el.style.display = 'none'; });
         }
 
         await waitLampa();
 
         if (!LOG_OFF) {
-            safe(function () { const el = ensurePopup(); if (el) el.style.display = 'none'; });
+            safe(function () { var el2 = ensurePopup(); if (el2) el2.style.display = 'none'; });
         }
 
-        for (let i = 0; i < PLUGINS.length; i++) {
-            const url = PLUGINS[i];
+        for (var i = 0; i < PLUGINS.length; i++) {
+            var url = PLUGINS[i];
             try {
-                const r = await load(url);
-                try { if (!LOG_OFF) console.log('[[AutoPlugin]]', r.ok ? 'OK' : 'FAIL', r.why, r.url); } catch (_) {}
+                var r = await load(url);
+                safe(function () { if (!LOG_OFF) console.log('[[AutoPlugin]]', r.ok ? 'OK' : 'FAIL', r.why, r.url); });
                 if (!r.ok) { if (!LOG_OFF) showError(r.url, 'LOAD FAIL', r.why); }
                 else { if (!LOG_OFF) showOk(r.url, 'loaded', r.why); }
             } catch (e) {
-                try { if (!LOG_OFF) console.log('[[AutoPlugin]] FAIL exception', url, e); } catch (_) {}
+                safe(function () { if (!LOG_OFF) console.log('[[AutoPlugin]] FAIL exception', url, e); });
                 if (!LOG_OFF) showError(url, 'LOAD LOOP EXCEPTION', fmtErr(e));
             }
         }
 
         if (!LOG_OFF) showOk('AutoPlugin', 'done', 'total=' + String(PLUGINS.length));
 
-        // КЛЮЧЕВОЕ: в режиме BOOT-ONLY — после done выключаем мониторинг/ивенты полностью
+        // BOOT mode: after done -> detach window listeners and stop all logging
         if (LOG_BOOT_ONLY) {
             disableMonitoring();
         }
