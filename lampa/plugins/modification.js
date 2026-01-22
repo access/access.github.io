@@ -37,6 +37,7 @@
         "https://amikdn.github.io/buttons.js"
     ];
 
+
     // ===== popup ===============================================================
 
     const POPUP_MS = 20_000;
@@ -46,17 +47,26 @@
     let popupTimer = null;
     const popupQueue = [];
 
-    // Цвета статусов (стандартно: red/yellow/green/blue/gray)
+    // Цвета статусов
     const TAG_STYLE = {
-        'ERR': 'color:#ff4d4f;font-weight:700',           // red
-        'WRN': 'color:#ffa940;font-weight:700',           // yellow/orange
-        'OK ': 'color:#52c41a;font-weight:700',           // green (с пробелом как у тебя)
-        'INF': 'color:#40a9ff;font-weight:700',           // blue
-        'DBG': 'color:#8c8c8c'                            // gray
+        'ERR': { color: '#ff4d4f' }, // red
+        'WRN': { color: '#ffa940' }, // orange
+        'OK ': { color: '#52c41a' }, // green
+        'INF': { color: '#40a9ff' }, // blue
+        'DBG': { color: '#8c8c8c' }  // gray
     };
+
+    // IMPORTANT: фикс "прыгающего" шрифта/лейаута:
+    // - одинаковый font-weight для всех строк (не bold на отдельных)
+    // - стабильный скроллбар (scrollbar-gutter)
+    // - моноширинный стек ближе к Linux-терминалу
+    const POPUP_FONT = '12px/1.35 "DejaVu Sans Mono","Liberation Mono","Ubuntu Mono","Noto Sans Mono",Consolas,Menlo,Monaco,monospace';
 
     function ensurePopup() {
         if (popupEl) return popupEl;
+
+        // если body ещё нет — не создаём, просто подождём (лог в очередь уже попадёт)
+        if (!document.body) return null;
 
         const el = document.createElement('div');
         el.id = '__autoplugin_popup';
@@ -68,14 +78,22 @@
             'bottom:12px',
             'z-index:2147483647',
             'background:rgba(0,0,0,0.82)',
-            'color:#fff',
-            'border-radius:12px',
-            'padding:10px 12px',
-            'font:12px/1.35 ui-monospace,SFMono-Regular,Menlo,Monaco,Consolas,"Liberation Mono","Courier New",monospace',
-            'pointer-events:none',
-            'white-space:pre-wrap',
-            'word-break:break-word',
-            'box-shadow:0 10px 30px rgba(0,0,0,0.35)'
+ 'color:#fff',
+ 'border-radius:12px',
+ 'padding:10px 12px',
+ 'box-sizing:border-box',
+ 'font:' + POPUP_FONT,
+ 'font-weight:500',                 // одинаковый везде (не прыгает)
+'font-variant-ligatures:none',
+'letter-spacing:0',
+'-webkit-font-smoothing:antialiased',
+'text-rendering:optimizeSpeed',
+'pointer-events:none',
+'white-space:pre-wrap',
+'word-break:break-word',
+'overflow:auto',
+'scrollbar-gutter:stable both-edges', // чтобы не дёргалось при появлении скролла
+'box-shadow:0 10px 30px rgba(0,0,0,0.35)'
         ].join(';');
 
         const title = document.createElement('div');
@@ -105,30 +123,48 @@
         }
     }
 
-    // РЕНДЕР с цветами: очередь хранит строки, но мы вытаскиваем tag из строки
+    function parseTag(line) {
+        try {
+            const m = String(line).match(/^\[[^\]]+\]\s(.{3})\s/); // "ERR"/"WRN"/"OK "/"INF"/"DBG"
+            return m ? m[1] : '';
+        } catch (_) {
+            return '';
+        }
+    }
+
     function renderPopup() {
         const el = ensurePopup();
-        const body = el.querySelector('#__autoplugin_popup_body');
+        if (!el) return;
 
-        // чтобы цвета работали — рендерим div-ами
-        body.innerHTML = '';
+        const body = el.querySelector('#__autoplugin_popup_body');
+        if (!body) return;
+
+        const frag = document.createDocumentFragment();
 
         for (const line of popupQueue) {
-            // ожидаемый формат: "[ts] TAG source: msg | extra"
-            // вытаскиваем TAG после "] "
-            let tag = '';
-            try {
-                const m = String(line).match(/^\[[^\]]+\]\s(.{3})\s/); // ровно 3 символа тега (ERR/WRN/OK /INF/DBG)
-tag = m ? m[1] : '';
-            } catch (_) {}
+            const tag = parseTag(line);
 
             const row = document.createElement('div');
             row.textContent = line;
 
-            // если тег известен — красим строку
-            if (tag && TAG_STYLE[tag]) row.style.cssText = TAG_STYLE[tag];
-            body.appendChild(row);
+            // общий стабильный стиль строки
+            row.style.cssText = [
+                'font:' + POPUP_FONT,
+                'font-weight:500',
+                'margin:0',
+                'padding:0'
+            ].join(';');
+
+            // цвет по тегу (без смены жирности -> меньше "прыжков")
+            if (tag && TAG_STYLE[tag]) {
+                row.style.color = TAG_STYLE[tag].color;
+            }
+
+            frag.appendChild(row);
         }
+
+        // replaceChildren стабильнее, чем innerHTML=''
+        body.replaceChildren(frag);
     }
 
     function pushPopupLine(line) {
@@ -138,7 +174,12 @@ tag = m ? m[1] : '';
         renderPopup();
 
         const el = ensurePopup();
+        if (!el) return;
+
+        // ВАЖНО: попап будет снова всплывать при ЛЮБОЙ новой строке (ошибка/варн/инфо),
+        // даже если он уже был скрыт таймером.
         el.style.display = 'block';
+
         if (popupTimer) clearTimeout(popupTimer);
         popupTimer = setTimeout(() => {
             if (popupEl) popupEl.style.display = 'none';
@@ -154,36 +195,112 @@ tag = m ? m[1] : '';
     function showError(source, message, extra) { showLine('ERR', source, message, extra); }
     function showWarn(source, message, extra)  { showLine('WRN', source, message, extra); }
     function showOk(source, message, extra)    { showLine('OK ', source, message, extra); }
-
-    // дополнительно (не мешает, можно не использовать)
     function showInfo(source, message, extra)  { showLine('INF', source, message, extra); }
     function showDbg(source, message, extra)   { showLine('DBG', source, message, extra); }
 
-    // ===== BLOCK YANDEX (log + hard block) =====================================
+    // ===== BLOCK NETWORK (YANDEX + GOOGLE/YOUTUBE + STATS) =====================
 
-    const BLOCK_HOST_RE =
+    // 1) Yandex
+    const BLOCK_YANDEX_RE =
     /(^|\.)((yandex\.(ru|com|net|by|kz|ua|uz|tm|tj))|(ya\.ru)|(yastatic\.net)|(yandex\.(net|com)\.tr))$/i;
 
-    function isBlockedUrl(u) {
+    // 2) Google / YouTube
+    // (хосты/домены: google/yt/ads/video/captcha и т.п.)
+    const BLOCK_GOOGLE_YT_RE =
+    /(^|\.)(
+        google\.com|
+        google\.[a-z.]+|
+        gstatic\.com|
+        googlesyndication\.com|
+        googleadservices\.com|
+        doubleclick\.net|
+        googletagmanager\.com|
+        google-analytics\.com|
+        analytics\.google\.com|
+        api\.google\.com|
+        accounts\.google\.com|
+        recaptcha\.net|
+        youtube\.com|
+        ytimg\.com|
+        googlevideo\.com|
+        youtu\.be|
+        youtube-nocookie\.com
+    )$/ix;
+
+    // 3) “Statistics / telemetry” (часто встречаемые трекеры)
+    // (можешь расширять спокойно)
+    const BLOCK_STATS_RE =
+    /(^|\.)(
+        scorecardresearch\.com|
+        quantserve\.com|
+        cdn\.quantserve\.com|
+        hotjar\.com|
+        static\.hotjar\.com|
+        mixpanel\.com|
+        api\.mixpanel\.com|
+        sentry\.io|
+        o\d+\.ingest\.sentry\.io|
+        datadoghq\.com|
+        segment\.com|
+        api\.segment\.io|
+        amplitude\.com|
+        api\.amplitude\.com|
+        branch\.io|
+        app-measurement\.com
+    )$/ix;
+
+    function classifyBlockedHost(hostname) {
         try {
-            if (!u) return false;
-            const url = new URL(String(u), location.href);
-            if (url.protocol !== 'http:' && url.protocol !== 'https:') return false;
-            return BLOCK_HOST_RE.test(url.hostname);
+            const h = String(hostname || '').toLowerCase();
+            if (!h) return null;
+            if (BLOCK_YANDEX_RE.test(h)) return 'Yandex';
+            if (BLOCK_GOOGLE_YT_RE.test(h)) return 'Google/YouTube';
+            if (BLOCK_STATS_RE.test(h)) return 'Statistics';
+            return null;
         } catch (_) {
-            return false;
+            return null;
         }
     }
 
-    function logBlocked(u, where) {
+    function isBlockedUrl(u) {
         try {
+            if (!u) return null;
+            const url = new URL(String(u), location.href);
+
+            // блок только сетевые протоколы
+            if (url.protocol !== 'http:' && url.protocol !== 'https:') return null;
+
+            return classifyBlockedHost(url.hostname);
+        } catch (_) {
+            return null;
+        }
+    }
+
+    function logBlocked(u, where, why) {
+        const label = (why || 'Blocked');
+
+        // цветной лог в консоль
+        try {
+            const badge =
+            label === 'Yandex' ? 'background:#ff2d55' :
+            label === 'Google/YouTube' ? 'background:#ff9500' :
+            label === 'Statistics' ? 'background:#8e8e93' :
+            'background:#ff2d55';
+
+            const txt =
+            label === 'Yandex' ? '#ff2d55' :
+            label === 'Google/YouTube' ? '#ff9500' :
+            label === 'Statistics' ? '#8e8e93' :
+            '#ff2d55';
+
             console.log(
-                '%c[BLOCKED:Yandex]%c ' + where + ' -> ' + u,
-                'background:#ff2d55;color:#fff;padding:2px 6px;border-radius:6px;font-weight:700',
-                'color:#ff2d55'
+                '%c[BLOCKED:' + label + ']%c ' + where + ' -> ' + u,
+                badge + ';color:#fff;padding:2px 6px;border-radius:6px;font-weight:700',
+                'color:' + txt
             );
         } catch (_) {}
-        showWarn(where, 'BLOCKED (Yandex)', u);
+
+        showWarn(where, 'BLOCKED (' + label + ')', u);
     }
 
     function patchBlockNetwork() {
@@ -192,9 +309,10 @@ tag = m ? m[1] : '';
             const origFetch = window.fetch.bind(window);
             window.fetch = function (input, init) {
                 const u = (typeof input === 'string') ? input : (input && input.url) ? input.url : '';
-                if (isBlockedUrl(u)) {
-                    logBlocked(u, 'fetch');
-                    return Promise.reject(new TypeError('Blocked by policy: Yandex'));
+                const why = isBlockedUrl(u);
+                if (why) {
+                    logBlocked(u, 'fetch', why);
+                    return Promise.reject(new TypeError('Blocked by policy: ' + why));
                 }
                 return origFetch(input, init);
             };
@@ -208,17 +326,19 @@ tag = m ? m[1] : '';
 
             XHR.prototype.open = function (method, url) {
                 this.__ap_url = url;
-                this.__ap_blocked = isBlockedUrl(url);
+                this.__ap_block_reason = isBlockedUrl(url); // null или "Yandex"/...
                 return origOpen.apply(this, arguments);
             };
 
             XHR.prototype.send = function () {
-                if (this.__ap_blocked) {
+                if (this.__ap_block_reason) {
                     const u = this.__ap_url;
-                    logBlocked(u, 'XHR');
+                    const why = this.__ap_block_reason;
+                    logBlocked(u, 'XHR', why);
+
                     const xhr = this;
                     setTimeout(() => {
-                        try { xhr.onerror && xhr.onerror(new Error('Blocked by policy: Yandex')); } catch (_) {}
+                        try { xhr.onerror && xhr.onerror(new Error('Blocked by policy: ' + why)); } catch (_) {}
                         try { xhr.onreadystatechange && xhr.onreadystatechange(); } catch (_) {}
                         try { xhr.dispatchEvent && xhr.dispatchEvent(new Event('error')); } catch (_) {}
                     }, 0);
@@ -232,28 +352,30 @@ tag = m ? m[1] : '';
         if (navigator.sendBeacon) {
             const origBeacon = navigator.sendBeacon.bind(navigator);
             navigator.sendBeacon = function (url, data) {
-                if (isBlockedUrl(url)) {
-                    logBlocked(url, 'sendBeacon');
+                const why = isBlockedUrl(url);
+                if (why) {
+                    logBlocked(url, 'sendBeacon', why);
                     return false;
                 }
                 return origBeacon(url, data);
             };
         }
 
-        // WebSocket
+        // WebSocket (редко, но пусть будет)
         if (window.WebSocket) {
             const OrigWS = window.WebSocket;
             window.WebSocket = function (url, protocols) {
-                if (isBlockedUrl(url)) {
-                    logBlocked(url, 'WebSocket');
-                    throw new Error('Blocked by policy: Yandex');
+                const why = isBlockedUrl(url);
+                if (why) {
+                    logBlocked(url, 'WebSocket', why);
+                    throw new Error('Blocked by policy: ' + why);
                 }
                 return protocols !== undefined ? new OrigWS(url, protocols) : new OrigWS(url);
             };
             window.WebSocket.prototype = OrigWS.prototype;
         }
 
-        showOk('policy', 'Network block installed', 'Yandex hosts');
+        showOk('policy', 'Network block installed', 'Yandex + Google/YouTube + Statistics');
     }
 
     // ===== script loader (HARDENED) ============================================
@@ -277,9 +399,10 @@ tag = m ? m[1] : '';
             try {
                 currentPlugin = url;
 
-                if (isBlockedUrl(url)) {
-                    logBlocked(url, 'script');
-                    finish(false, 'blocked');
+                const blockReason = isBlockedUrl(url);
+                if (blockReason) {
+                    logBlocked(url, 'script', blockReason);
+                    finish(false, 'blocked:' + blockReason);
                     return;
                 }
 
@@ -322,7 +445,8 @@ tag = m ? m[1] : '';
     }
 
     // ===== global error hooks ==================================================
-
+    // Это остаётся висеть ПОСТОЯННО, так что если позже снова возникнут ошибки/анхендлед —
+    // pop-up снова всплывёт (pushPopupLine всегда делает display=block).
     window.addEventListener('error', (ev) => {
         try {
             const msg = ev && ev.message ? ev.message : 'error';
@@ -352,12 +476,18 @@ tag = m ? m[1] : '';
     // ===== main ================================================================
 
     async function start() {
+        // ставим политику блокировок СРАЗУ (чтобы плагины тоже были под ней)
         patchBlockNetwork();
+
+        // пробуем создать попап пораньше (если body уже есть)
+        try { const el = ensurePopup(); if (el) el.style.display = 'none'; } catch (_) {}
 
         await waitLampa();
 
-        try { ensurePopup().style.display = 'none'; } catch (_) {}
+        // ещё раз гарантируем, что попап реально создан
+        try { const el = ensurePopup(); if (el) el.style.display = 'none'; } catch (_) {}
 
+        // загрузка плагинов: не прерывается даже при ошибках
         for (const url of PLUGINS) {
             try {
                 const r = await load(url); // {ok, why, url}
@@ -375,4 +505,5 @@ tag = m ? m[1] : '';
 
     start();
 })();
+
 
