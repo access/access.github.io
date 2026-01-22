@@ -35,7 +35,7 @@
         "https://amikdn.github.io/buttons.js"
     ];
 
-    // ===== popup (10s) =========================================================
+    // ===== popup ===============================================================
 
     const POPUP_MS = 20_000;
     const MAX_LINES = 100;
@@ -57,19 +57,19 @@
             'bottom:12px',
             'z-index:2147483647',
             'background:rgba(0,0,0,0.80)',
-            'color:#fff',
-            'border-radius:12px',
-            'padding:10px 12px',
-            'font:10px/1.35 ui-monospace,SFMono-Regular,Menlo,Monaco,Consolas,"Liberation Mono","Courier New",monospace',
-            'pointer-events:none',
-            'white-space:pre-wrap',
-            'word-break:break-word',
-            'box-shadow:0 10px 30px rgba(0,0,0,0.35)'
+ 'color:#fff',
+ 'border-radius:12px',
+ 'padding:10px 12px',
+ 'font:10px/1.35 ui-monospace,SFMono-Regular,Menlo,Monaco,Consolas,"Liberation Mono","Courier New",monospace',
+ 'pointer-events:none',
+ 'white-space:pre-wrap',
+ 'word-break:break-word',
+ 'box-shadow:0 10px 30px rgba(0,0,0,0.35)'
         ].join(';');
 
         const title = document.createElement('div');
         title.style.cssText = 'font-weight:700;margin-bottom:6px;opacity:.95';
-        title.textContent = 'AutoPlugin errors';
+        title.textContent = 'AutoPlugin log';
 
         const body = document.createElement('div');
         body.id = '__autoplugin_popup_body';
@@ -101,7 +101,6 @@
         const body = el.querySelector('#__autoplugin_popup_body');
         body.textContent = popupQueue.join('\n');
 
-        // show 10s from last update
         el.style.display = 'block';
         if (popupTimer) clearTimeout(popupTimer);
         popupTimer = setTimeout(() => {
@@ -109,21 +108,132 @@
         }, POPUP_MS);
     }
 
-    function showError(source, message, extra) {
+    function showLine(tag, source, message, extra) {
         const ts = new Date().toLocaleTimeString();
-        const line = `[${ts}] ${source}: ${message}${extra ? ` | ${extra}` : ''}`;
+        const line = `[${ts}] ${tag} ${source}: ${message}${extra ? ` | ${extra}` : ''}`;
         pushPopupLine(line);
     }
 
-    // ===== script loader with attribution =====================================
+    function showError(source, message, extra) { showLine('ERR', source, message, extra); }
+    function showWarn(source, message, extra)  { showLine('WRN', source, message, extra); }
+    function showOk(source, message, extra)    { showLine('OK ', source, message, extra); }
 
-    // map current "executing plugin"
+    // ===== BLOCK YANDEX (log + hard block) =====================================
+
+    // что именно блокируем (добавляй паттерны как хочешь)
+    const BLOCK_HOST_RE = /(^|\.)((yandex\.(ru|com|net|by|kz|ua|uz|tm|tj))|(ya\.ru)|(yastatic\.net)|(yandex\.(net|com)\.tr))$/i;
+
+    function isBlockedUrl(u) {
+        try {
+            if (!u) return false;
+            const url = new URL(String(u), location.href);
+            // блок только сетевые протоколы
+            if (url.protocol !== 'http:' && url.protocol !== 'https:') return false;
+            return BLOCK_HOST_RE.test(url.hostname);
+        } catch (_) {
+            return false;
+        }
+    }
+
+    // красивый лог в консоль (цветом)
+    function logBlocked(u, where) {
+        try {
+            console.log(
+                '%c[BLOCKED:Yandex]%c ' + where + ' -> ' + u,
+                'background:#ff2d55;color:#fff;padding:2px 6px;border-radius:6px;font-weight:700',
+                'color:#ff2d55'
+            );
+        } catch (_) {}
+        showWarn(where, 'BLOCKED (Yandex)', u);
+    }
+
+    function patchBlockNetwork() {
+        // fetch
+        if (window.fetch) {
+            const origFetch = window.fetch.bind(window);
+            window.fetch = function (input, init) {
+                const u = (typeof input === 'string') ? input : (input && input.url) ? input.url : '';
+                if (isBlockedUrl(u)) {
+                    logBlocked(u, 'fetch');
+                    // имитируем "сетевую" ошибку
+                    return Promise.reject(new TypeError('Blocked by policy: Yandex'));
+                }
+                return origFetch(input, init);
+            };
+        }
+
+        // XHR
+        if (window.XMLHttpRequest) {
+            const XHR = window.XMLHttpRequest;
+            const origOpen = XHR.prototype.open;
+            const origSend = XHR.prototype.send;
+
+            XHR.prototype.open = function (method, url) {
+                this.__ap_url = url;
+                this.__ap_blocked = isBlockedUrl(url);
+                return origOpen.apply(this, arguments);
+            };
+
+            XHR.prototype.send = function () {
+                if (this.__ap_blocked) {
+                    const u = this.__ap_url;
+                    logBlocked(u, 'XHR');
+                    // делаем асинхронно, чтобы не ломать ожидания кода
+                    const xhr = this;
+                    setTimeout(() => {
+                        try { xhr.onerror && xhr.onerror(new Error('Blocked by policy: Yandex')); } catch (_) {}
+                        try { xhr.onreadystatechange && xhr.onreadystatechange(); } catch (_) {}
+                        try { xhr.dispatchEvent && xhr.dispatchEvent(new Event('error')); } catch (_) {}
+                    }, 0);
+                    return;
+                }
+                return origSend.apply(this, arguments);
+            };
+        }
+
+        // sendBeacon
+        if (navigator.sendBeacon) {
+            const origBeacon = navigator.sendBeacon.bind(navigator);
+            navigator.sendBeacon = function (url, data) {
+                if (isBlockedUrl(url)) {
+                    logBlocked(url, 'sendBeacon');
+                    return false;
+                }
+                return origBeacon(url, data);
+            };
+        }
+
+        // WebSocket (часто редко, но на всякий)
+        if (window.WebSocket) {
+            const OrigWS = window.WebSocket;
+            window.WebSocket = function (url, protocols) {
+                if (isBlockedUrl(url)) {
+                    logBlocked(url, 'WebSocket');
+                    throw new Error('Blocked by policy: Yandex');
+                }
+                return protocols !== undefined ? new OrigWS(url, protocols) : new OrigWS(url);
+            };
+            window.WebSocket.prototype = OrigWS.prototype;
+        }
+
+        showOk('policy', 'Network block installed', 'Yandex hosts');
+    }
+
+    // ===== script loader =======================================================
+
     let currentPlugin = null;
 
     function load(url) {
         return new Promise((resolve) => {
             try {
                 currentPlugin = url;
+
+                if (isBlockedUrl(url)) {
+                    logBlocked(url, 'script');
+                    currentPlugin = null;
+                    resolve(false);
+                    return;
+                }
 
                 const s = document.createElement('script');
                 s.src = url;
@@ -158,7 +268,6 @@
 
     // ===== global error hooks ==================================================
 
-    // JS runtime errors
     window.addEventListener('error', (ev) => {
         try {
             const msg = ev && ev.message ? ev.message : 'error';
@@ -167,20 +276,16 @@
             const col  = (ev && typeof ev.colno === 'number') ? ev.colno : '?';
             const stack = ev && ev.error && ev.error.stack ? ev.error.stack.split('\n')[0] : '';
 
-            // try to attribute to plugin:
-            // - if filename is a plugin url => use it
-            // - else if currentPlugin exists => likely during load/exec
             const src =
             (file && PLUGINS.some(p => file.includes(p))) ? file :
             (file && PLUGINS.some(p => p.includes(file))) ? file :
-            (PLUGINS.some(p => file && file.includes(new URL(p).host))) ? file :
+            (PLUGINS.some(p => file && (() => { try { return file.includes(new URL(p).host); } catch { return false; } })())) ? file :
             (currentPlugin || file);
 
             showError(src, msg, `${file}:${line}:${col}${stack ? ` | ${stack}` : ''}`);
         } catch (_) {}
     }, true);
 
-    // unhandled promises
     window.addEventListener('unhandledrejection', (ev) => {
         try {
             const reason = ev && ev.reason ? ev.reason : 'unhandled rejection';
@@ -193,9 +298,11 @@
     // ===== main ================================================================
 
     async function start() {
+        // СНАЧАЛА блок сетки (чтобы плагины тоже попадали под него)
+        patchBlockNetwork();
+
         await waitLampa();
 
-        // гарантируем, что popup можно рисовать
         try { ensurePopup().style.display = 'none'; } catch (_) {}
 
         for (const url of PLUGINS) {
