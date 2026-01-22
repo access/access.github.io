@@ -3,7 +3,7 @@
 
     // список автоплагинов (НЕ УДАЛЯЮ закомментированные — оставляю как есть)
     const PLUGINS = [
-        "https://tsynik.github.io/lampa/e.js",
+        //"https://tsynik.github.io/lampa/e.js",
         "https://and7ey.github.io/lampa/stats.js",
         //"https://and7ey.github.io/lampa/head_filter.js",
         "https://andreyurl54.github.io/diesel5/tricks.js",
