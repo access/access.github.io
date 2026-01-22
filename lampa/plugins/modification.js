@@ -33,7 +33,6 @@
         "https://skaztv.online/store.js",
         "https://skaztv.online/js/tricks.js",
 
-
         // "https://amiv1.github.io/lampa/rating.js",
         "scripts/rating.js",
 
@@ -49,7 +48,12 @@
 
     let popupEl = null;
     let popupTimer = null;
-    const popupQueue = [];
+
+    // ВАЖНО: вместо полного re-render на каждую строку (что убивает ТВ),
+    // делаем инкрементальный append + редкий rebuild.
+    const popupQueue = []; // элементы: { line: string, tag: string, key: string, ts: number, count?: number }
+    let popupBodyEl = null;
+    let renderedCount = 0; // сколько строк реально уже отрисовано в DOM
 
     // Цвета статусов
     const TAG_STYLE = {
@@ -86,23 +90,23 @@
             'bottom:12px',
             'z-index:2147483647',
             'background:rgba(0,0,0,0.82)',
-            'color:#fff',
-            'border-radius:12px',
-            'padding:10px 12px',
-            'box-sizing:border-box',
-            'font:' + POPUP_FONT,
-            'font-weight:500',                 // одинаковый везде (не прыгает)
-            'font-variant-ligatures:none',
-            'letter-spacing:0',
-            '-webkit-font-smoothing:antialiased',
-            'text-rendering:optimizeSpeed',
-            'pointer-events:none',
-            'white-space:pre-wrap',
-            'word-break:break-word',
-            'overflow:auto',
-            'box-shadow:0 10px 30px rgba(0,0,0,0.25)'
-            // scrollbar-gutter НЕ везде поддерживается; добавлять можно, но не критично.
-            // 'scrollbar-gutter:stable both-edges'
+ 'color:#fff',
+ 'border-radius:12px',
+ 'padding:10px 12px',
+ 'box-sizing:border-box',
+ 'font:' + POPUP_FONT,
+ 'font-weight:500',                 // одинаковый везде (не прыгает)
+'font-variant-ligatures:none',
+'letter-spacing:0',
+'-webkit-font-smoothing:antialiased',
+'text-rendering:optimizeSpeed',
+'pointer-events:none',
+'white-space:pre-wrap',
+'word-break:break-word',
+'overflow:auto',
+'box-shadow:0 10px 30px rgba(0,0,0,0.25)'
+// scrollbar-gutter НЕ везде поддерживается; добавлять можно, но не критично.
+// 'scrollbar-gutter:stable both-edges'
         ].join(';');
 
         const title = document.createElement('div');
@@ -123,9 +127,11 @@
         document.body.appendChild(el);
 
         popupEl = el;
+        popupBodyEl = body;
+        renderedCount = 0;
 
-        // если что-то уже накопилось — отрисуем сразу
-        safe(function () { renderPopup(); });
+        // если что-то уже накопилось — дорисуем батчем (не full rebuild на каждый push)
+        safe(function () { schedulePopupFlush(); });
         return el;
     }
 
@@ -140,7 +146,7 @@
         }
     }
 
-    function parseTag(line) {
+    function parseTagFromLine(line) {
         try {
             const m = String(line).match(/^\[[^\]]+\]\s(.{3})\s/); // "ERR"/"WRN"/"OK "/"INF"/"DBG"
             return m ? m[1] : '';
@@ -156,62 +162,198 @@
         } catch (_) {}
     }
 
-    function renderPopup() {
-        const el = ensurePopup();
-        if (!el) return;
+    // ---------- PERF: coalesce + throttled DOM flush ----------
 
-        const body = el.querySelector('#__autoplugin_popup_body');
-        if (!body) return;
+    // чтобы не валить ТВ тысячами одинаковых сообщений (особенно блокировки/ошибки сети)
+    const COALESCE_WINDOW_MS = 1500; // если то же сообщение приходит в пределах окна — увеличиваем счётчик
+    let lastKey = '';
+    let lastIdx = -1;
+    let lastTs = 0;
 
-        // !!! на ТВ часто именно тут падало из-за replaceChildren/прочего
-        clearNode(body);
+    // общий rate-limit (на всякий): максимум N строк в секунду в очередь
+    const RATE_MAX_PER_SEC = 25;
+    let rateBucketTs = 0;
+    let rateBucketCount = 0;
 
-        const frag = document.createDocumentFragment();
-
-        for (let i = 0; i < popupQueue.length; i++) {
-            const line = popupQueue[i];
-            const tag = parseTag(line);
-
-            const row = document.createElement('div');
-            row.textContent = line;
-
-            row.style.cssText = [
-                'font:' + POPUP_FONT,
-                'font-weight:500',
-                'margin:0',
-                'padding:0'
-            ].join(';');
-
-            if (tag && TAG_STYLE[tag]) row.style.color = TAG_STYLE[tag].color;
-
-            frag.appendChild(row);
-        }
-
-        body.appendChild(frag);
+    function makeKey(tag, source, message, extra) {
+        // короткий ключ (без ts)
+        return String(tag) + '|' + String(source) + '|' + String(message) + '|' + String(extra || '');
     }
 
-    function pushPopupLine(line) {
-        popupQueue.push(line);
-        while (popupQueue.length > MAX_LINES) popupQueue.shift();
+    function rateAllow() {
+        const now = Date.now();
+        if (!rateBucketTs || (now - rateBucketTs) >= 1000) {
+            rateBucketTs = now;
+            rateBucketCount = 0;
+        }
+        rateBucketCount++;
+        return rateBucketCount <= RATE_MAX_PER_SEC;
+    }
 
-        safe(function () { renderPopup(); });
+    function decorateLine(line, count) {
+        if (!count || count <= 1) return line;
+        return line + '  ×' + String(count);
+    }
 
+    // Планировщик DOM-обновлений: копим строки и рисуем разом (1 кадр / тик)
+    let flushScheduled = false;
+    function schedulePopupFlush() {
+        if (flushScheduled) return;
+        flushScheduled = true;
+
+        const runner = function () {
+            flushScheduled = false;
+            flushPopupToDom();
+        };
+
+        // rAF где возможно, иначе setTimeout
+        if (window.requestAnimationFrame) {
+            window.requestAnimationFrame(runner);
+        } else {
+            setTimeout(runner, 0);
+        }
+    }
+
+    function makeRow(entry) {
+        const row = document.createElement('div');
+        row.textContent = entry.line;
+        row.style.cssText = [
+            'font:' + POPUP_FONT,
+            'font-weight:500',
+            'margin:0',
+            'padding:0'
+        ].join(';');
+
+        const tag = entry.tag;
+        if (tag && TAG_STYLE[tag]) row.style.color = TAG_STYLE[tag].color;
+
+        return row;
+    }
+
+    function fullRebuild() {
+        const el = ensurePopup();
+        if (!el || !popupBodyEl) return;
+
+        clearNode(popupBodyEl);
+
+        const frag = document.createDocumentFragment();
+        for (let i = 0; i < popupQueue.length; i++) {
+            const e = popupQueue[i];
+            // fallback, если tag пустой
+            if (!e.tag) e.tag = parseTagFromLine(e.line);
+            frag.appendChild(makeRow(e));
+        }
+        popupBodyEl.appendChild(frag);
+        renderedCount = popupQueue.length;
+    }
+
+    function flushPopupToDom() {
+        const el = ensurePopup();
+        if (!el || !popupBodyEl) return;
+
+        // если DOM отстал (например был создан позже) — rebuild
+        if (renderedCount > popupQueue.length) renderedCount = 0;
+
+        // если очередь переполнена и мы сдвигали shift() — проще rebuild
+        // (это случается только когда MAX_LINES превысили)
+        // признак: если renderedCount !== popupQueue.length, но DOM не соответствует — rebuild.
+        if (renderedCount === 0 && popupQueue.length > 0 && popupBodyEl.childNodes.length === 0) {
+            // новый попап, просто rebuild
+            fullRebuild();
+            return;
+        }
+
+        // инкрементально дорисуем только новые записи
+        if (renderedCount < popupQueue.length) {
+            const frag = document.createDocumentFragment();
+            for (let i = renderedCount; i < popupQueue.length; i++) {
+                frag.appendChild(makeRow(popupQueue[i]));
+            }
+            popupBodyEl.appendChild(frag);
+            renderedCount = popupQueue.length;
+        }
+
+        // если последний элемент коалесцировался — обновим последнюю DOM-строку (дёшево)
+        // (обновление текста уже сделано в queue; тут просто синхронизируем DOM, если нужно)
+        // Важно: на некоторых ТВ NodeList/lastChild может быть null — safe.
+        safe(function () {
+            const lastDom = popupBodyEl.lastChild;
+            const lastQ = popupQueue[popupQueue.length - 1];
+            if (lastDom && lastQ && lastDom.textContent !== lastQ.line) {
+                lastDom.textContent = lastQ.line;
+            }
+        });
+    }
+
+    function showPopupNow() {
         const el = ensurePopup();
         if (!el) return;
 
-        // попап снова всплывает на любую новую запись
         el.style.display = 'block';
-
         if (popupTimer) clearTimeout(popupTimer);
         popupTimer = setTimeout(function () {
             if (popupEl) popupEl.style.display = 'none';
         }, POPUP_MS);
     }
 
+    function pushPopupLine(line, tag, key) {
+        // rate-limit: если сверх лимита — не спамим DOM/очередь (но можно раз в сек написать что было пропущено)
+        if (!rateAllow()) {
+            // раз в секунду всё-таки фиксируем, что режем поток (без рекурсии и без спама)
+            // (один раз за окно)
+            const now = Date.now();
+            if ((now - rateBucketTs) < 1000 && rateBucketCount === (RATE_MAX_PER_SEC + 1)) {
+                const ts = new Date().toLocaleTimeString();
+                const l = `[${ts}] WRN AutoPlugin: log rate limited | max=${RATE_MAX_PER_SEC}/s`;
+                popupQueue.push({ line: l, tag: 'WRN', key: 'rate', ts: now, count: 1 });
+                while (popupQueue.length > MAX_LINES) { popupQueue.shift(); renderedCount = 0; }
+                schedulePopupFlush();
+                showPopupNow();
+            }
+            return;
+        }
+
+        const now = Date.now();
+
+        // coalesce identical messages in short window
+        if (key && key === lastKey && (now - lastTs) <= COALESCE_WINDOW_MS && lastIdx >= 0 && lastIdx < popupQueue.length) {
+            const e = popupQueue[lastIdx];
+            e.count = (e.count || 1) + 1;
+            // переписываем line с ×N (и обновим DOM на flush)
+            // ВАЖНО: line уже содержит ts; оставляем его (чтобы не было дерготни из-за времени)
+            e.line = decorateLine(line, e.count);
+            popupQueue[lastIdx] = e;
+            schedulePopupFlush();
+            showPopupNow();
+            return;
+        }
+
+        popupQueue.push({ line: line, tag: tag || '', key: key || '', ts: now, count: 1 });
+
+        // если превысили MAX_LINES — shift() и mark rebuild
+        while (popupQueue.length > MAX_LINES) {
+            popupQueue.shift();
+            renderedCount = 0; // DOM теперь не совпадает -> rebuild при flush
+            lastIdx = -1;
+            lastKey = '';
+        }
+
+        lastKey = key || '';
+        lastIdx = popupQueue.length - 1;
+        lastTs = now;
+
+        schedulePopupFlush();
+        showPopupNow();
+    }
+
     function showLine(tag, source, message, extra) {
         const ts = new Date().toLocaleTimeString();
         const line = `[${ts}] ${tag} ${source}: ${message}${extra ? ` | ${extra}` : ''}`;
-        pushPopupLine(line);
+
+        // ключ коалесцирования — без ts
+        const key = makeKey(tag, source, message, extra);
+
+        pushPopupLine(line, tag, key);
     }
 
     function showError(source, message, extra) { showLine('ERR', source, message, extra); }
@@ -245,7 +387,7 @@
             const isBwa = (host === 'bwa.to') || (host.length > 7 && host.slice(host.length - 7) === '.bwa.to');
             if (!isBwa) return false;
 
-            // path starts with /cors/check (без startsWith для старых движков)
+            // path starts with /cors/check
             return path.indexOf('/cors/check') === 0;
         } catch (_) {
             return false;
@@ -303,11 +445,11 @@
             label === 'BWA:CORS' ? '#00c2ff' :
             '#ff2d55';
 
-            console.log(
-                '%c[BLOCKED:' + label + ']%c ' + where + ' -> ' + u,
-                badge + ';color:#fff;padding:2px 6px;border-radius:6px;font-weight:700',
-                'color:' + txt
-            );
+        console.log(
+            '%c[BLOCKED:' + label + ']%c ' + where + ' -> ' + u,
+            badge + ';color:#fff;padding:2px 6px;border-radius:6px;font-weight:700',
+            'color:' + txt
+        );
         } catch (_) {}
 
         showWarn(where, 'BLOCKED (' + label + ')', u);
@@ -455,6 +597,7 @@
 
 
     // ===== global error hooks ==================================================
+    // PERF: обработчики должны быть "тонкими": только собрать минимум и закинуть в очередь.
     window.addEventListener('error', function (ev) {
         try {
             const msg = ev && ev.message ? ev.message : 'error';
@@ -468,6 +611,7 @@
             (file && PLUGINS.some(function (p) { return p.indexOf(file) !== -1; })) ? file :
             (currentPlugin || file);
 
+            // ВАЖНО: без тяжёлых DOM операций тут
             showError(src, msg, String(file) + ':' + String(line) + ':' + String(col) + (stack ? (' | ' + stack) : ''));
         } catch (_) {}
     }, true);
