@@ -32,7 +32,7 @@
         "https://skaztv.online/js/tricks.js",
 
         // "https://amiv1.github.io/lampa/rating.js",
-        "scripts/rating.js",
+        "https://access.github.io/lampa/scripts/rating.js",
 
         "https://amikdn.github.io/buttons.js"
     ];
