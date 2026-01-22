@@ -3,12 +3,15 @@
 
     // список автоплагинов (НЕ УДАЛЯЮ закомментированные — оставляю как есть)
     const PLUGINS = [
-        //"https://tsynik.github.io/lampa/e.js",
-        "https://and7ey.github.io/lampa/stats.js",
-        //"https://and7ey.github.io/lampa/head_filter.js",
-        "https://andreyurl54.github.io/diesel5/tricks.js",
+        // "http://skaz.tv/onlines.js",
+        // "http://skaz.tv/vcdn.js",
+        // "https://netfix.cc/netfix.js",
+        "https://tsynik.github.io/lampa/e.js",
+        //"https://and7ey.github.io/lampa/stats.js",
+        "https://and7ey.github.io/lampa/head_filter.js",
+        //"https://andreyurl54.github.io/diesel5/tricks.js",
 
-        //"https://bylampa.github.io/redirect.js",
+        // "https://bylampa.github.io/redirect.js",
         "https://bylampa.github.io/trailer_off.js",
         "https://bylampa.github.io/color_vote.js",
         "https://bylampa.github.io/seas_and_eps.js",
@@ -17,16 +20,16 @@
         "https://bylampa.github.io/cub_off.js",
         "https://bylampa.github.io/addon.js",
 
-        //"https://bdvburik.github.io/title.js",
+        // "https://bdvburik.github.io/title.js",
         "https://bywolf88.github.io/lampa-plugins/interface_mod.js",
 
-        "https://bwa.to/rc",
-        "https://bwa.to/cloud.js",
+        // "https://bwa.to/rc",
+        // "https://bwa.to/cloud.js",
 
         "https://nb557.github.io/plugins/online_mod.js",
 
-        "https://skaztv.online/store.js",
-        //"https://skaztv.online/js/tricks.js",
+        // "https://skaztv.online/store.js",
+        // "https://skaztv.online/js/tricks.js",
 
         "https://amiv1.github.io/lampa/rating.js",
         "https://amikdn.github.io/buttons.js"
@@ -40,6 +43,15 @@
     let popupEl = null;
     let popupTimer = null;
     const popupQueue = [];
+
+    // Цвета статусов (стандартно: red/yellow/green/blue/gray)
+    const TAG_STYLE = {
+        'ERR': 'color:#ff4d4f;font-weight:700',           // red
+        'WRN': 'color:#ffa940;font-weight:700',           // yellow/orange
+        'OK ': 'color:#52c41a;font-weight:700',           // green (с пробелом как у тебя)
+        'INF': 'color:#40a9ff;font-weight:700',           // blue
+        'DBG': 'color:#8c8c8c'                            // gray
+    };
 
     function ensurePopup() {
         if (popupEl) return popupEl;
@@ -91,14 +103,39 @@
         }
     }
 
+    // РЕНДЕР с цветами: очередь хранит строки, но мы вытаскиваем tag из строки
+    function renderPopup() {
+        const el = ensurePopup();
+        const body = el.querySelector('#__autoplugin_popup_body');
+
+        // чтобы цвета работали — рендерим div-ами
+        body.innerHTML = '';
+
+        for (const line of popupQueue) {
+            // ожидаемый формат: "[ts] TAG source: msg | extra"
+            // вытаскиваем TAG после "] "
+            let tag = '';
+            try {
+                const m = String(line).match(/^\[[^\]]+\]\s(.{3})\s/); // ровно 3 символа тега (ERR/WRN/OK /INF/DBG)
+tag = m ? m[1] : '';
+            } catch (_) {}
+
+            const row = document.createElement('div');
+            row.textContent = line;
+
+            // если тег известен — красим строку
+            if (tag && TAG_STYLE[tag]) row.style.cssText = TAG_STYLE[tag];
+            body.appendChild(row);
+        }
+    }
+
     function pushPopupLine(line) {
         popupQueue.push(line);
         while (popupQueue.length > MAX_LINES) popupQueue.shift();
 
-        const el = ensurePopup();
-        const body = el.querySelector('#__autoplugin_popup_body');
-        body.textContent = popupQueue.join('\n');
+        renderPopup();
 
+        const el = ensurePopup();
         el.style.display = 'block';
         if (popupTimer) clearTimeout(popupTimer);
         popupTimer = setTimeout(() => {
@@ -115,6 +152,10 @@
     function showError(source, message, extra) { showLine('ERR', source, message, extra); }
     function showWarn(source, message, extra)  { showLine('WRN', source, message, extra); }
     function showOk(source, message, extra)    { showLine('OK ', source, message, extra); }
+
+    // дополнительно (не мешает, можно не использовать)
+    function showInfo(source, message, extra)  { showLine('INF', source, message, extra); }
+    function showDbg(source, message, extra)   { showLine('DBG', source, message, extra); }
 
     // ===== BLOCK YANDEX (log + hard block) =====================================
 
@@ -215,15 +256,6 @@
 
     // ===== script loader (HARDENED) ============================================
 
-    // Почему у тебя "останавливается":
-    // - если какой-то плагин кидает ошибку синхронно при выполнении, он может ломать свой же onload-цепочку
-    // - или уходит в "вечную загрузку" (ни onload, ни onerror), и await load(url) висит навсегда
-    //
-    // Решение:
-    // 1) Всегда резолвить промис (даже если нет событий) по TIMEOUT
-    // 2) Никогда не оставлять "await" без try/catch в цикле
-    // 3) Делать async=false (порядок) или async=true (быстрее). Тут оставлю async=true как у тебя.
-
     const LOAD_TIMEOUT_MS = 15_000;
 
     // map current "executing plugin" (best-effort)
@@ -270,11 +302,7 @@
                     finish(false, 'onerror');
                 };
 
-                // ВАЖНО: appendChild сам по себе может кинуть (CSP/DOM), ловим
                 document.head.appendChild(s);
-
-                // Доп-страховка: если браузер почему-то синхронно ругнулся и не вызвал события
-                // — finish сработает по таймауту.
             } catch (e) {
                 showError(url, 'LOAD EXCEPTION', fmtErr(e));
                 finish(false, 'exception');
@@ -328,7 +356,6 @@
 
         try { ensurePopup().style.display = 'none'; } catch (_) {}
 
-        // ключевое: даже если load() вдруг кинет (не должен), цикл не должен рваться
         for (const url of PLUGINS) {
             try {
                 const r = await load(url); // {ok, why, url}
@@ -336,7 +363,6 @@
                 if (!r.ok) showError(r.url, 'LOAD FAIL', r.why);
                 else showOk(r.url, 'loaded', r.why);
             } catch (e) {
-                // на случай совсем неожиданного
                 console.log('[AutoPlugin] FAIL exception', url, e);
                 showError(url, 'LOAD LOOP EXCEPTION', fmtErr(e));
             }
@@ -347,3 +373,4 @@
 
     start();
 })();
+
