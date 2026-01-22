@@ -1,149 +1,227 @@
 (function () {
     'use strict';
-    // ============================================================================
-    // ACCESS INIT
-    // ============================================================================
 
-    // ====== FAKE PASSWORD LOCK (simple overlay) ======
-    (function () {
-        'use strict';
+    // =========================
+    // CONFIG
+    // =========================
+    const AUTH_KEY = 'msx_fake_auth_ok_v2';
 
-        const AUTH_KEY = 'msx_fake_auth_ok_v1';
-        const PASS = 'blacklampa'; // <-- твой пароль
+    // Для ПК/телефона (буквы можно ввести)
+    const PASS_TEXT = 'blacklampa';
 
-        function getAuthed() {
-            try { return !!Lampa.Storage.get(AUTH_KEY); } catch (e) { return false; }
-        }
-        function setAuthed(v) {
-            try { Lampa.Storage.set(AUTH_KEY, v ? 1 : 0); } catch (e) {}
-        }
+    // Для ТВ (ввести цифры пультом проще/реальнее)
+    const PASS_PIN  = '1977'; // <-- поменяй на свой PIN
 
-        function mountLockOverlay() {
-            // уже стоит
-            if (document.getElementById('msx_fake_lock')) return;
+    // =========================
+    // STORAGE
+    // =========================
+    function getAuthed() {
+        try { return !!(window.Lampa && Lampa.Storage && Lampa.Storage.get(AUTH_KEY)); }
+        catch (e) { return false; }
+    }
 
-            const wrap = document.createElement('div');
-            wrap.id = 'msx_fake_lock';
-            wrap.style.cssText = [
-                'position:fixed',
-     'inset:0',
-     'z-index:2147483647',
-     'background:rgba(0,0,0,.92)',
-     'display:flex',
-     'align-items:center',
-     'justify-content:center',
-     'padding:24px',
-     'box-sizing:border-box'
-            ].join(';');
+    function setAuthed(v) {
+        try { window.Lampa && Lampa.Storage && Lampa.Storage.set(AUTH_KEY, v ? 1 : 0); }
+        catch (e) {}
+    }
 
-            const box = document.createElement('div');
-            box.style.cssText = [
-                'width:min(520px, 100%)',
-     'border:1px solid rgba(255,255,255,.15)',
-     'border-radius:16px',
-     'padding:18px',
-     'box-sizing:border-box',
-     'color:#fff',
-     'font:16px/1.35 sans-serif'
-            ].join(';');
+    // =========================
+    // LOCK UI (overlay)
+    // =========================
+    function ensureOverlay() {
+        if (document.getElementById('msx_fake_lock')) return;
 
-            box.innerHTML = `
-            <div style="font-size:22px;margin-bottom:10px">Locked</div>
-            <div style="opacity:.8;margin-bottom:14px">Enter password</div>
+        const wrap = document.createElement('div');
+        wrap.id = 'msx_fake_lock';
+        wrap.style.cssText = [
+            'position:fixed',
+            'inset:0',
+            'z-index:2147483647',
+            'background:rgba(0,0,0,.92)',
+ 'display:flex',
+ 'align-items:center',
+ 'justify-content:center',
+ 'padding:24px',
+ 'box-sizing:border-box'
+        ].join(';');
 
-            <input id="msx_pw_inp" type="password" placeholder="password" style="
-            width:100%;
-            padding:12px 14px;
-            background:#111;
-            border:1px solid rgba(255,255,255,.18);
-            border-radius:12px;
-            color:#fff;
-            outline:none;
-            box-sizing:border-box;
-            "/>
+        const box = document.createElement('div');
+        box.style.cssText = [
+            'width:min(520px, 100%)',
+ 'border:1px solid rgba(255,255,255,.15)',
+ 'border-radius:16px',
+ 'padding:18px',
+ 'box-sizing:border-box',
+ 'color:#fff',
+ 'font:16px/1.35 sans-serif'
+        ].join(';');
 
-            <div id="msx_pw_btn" tabindex="0" style="
-            margin-top:12px;
-            display:flex;
-            align-items:center;
-            justify-content:center;
-            padding:12px 14px;
-            border:1px solid rgba(255,255,255,.22);
-            border-radius:12px;
-            user-select:none;
-            cursor:pointer;
-            ">Unlock</div>
+        box.innerHTML = `
+        <div style="font-size:22px;margin-bottom:10px">Locked</div>
+        <div style="opacity:.8;margin-bottom:14px">Enter password / PIN</div>
 
-            <div id="msx_pw_err" style="margin-top:10px;opacity:.85;display:none;color:#ff6b6b">
-            Wrong password
-            </div>
-            `;
+        <input id="msx_pw_inp" type="password" placeholder="password or pin" autocomplete="off" autocapitalize="none" spellcheck="false" style="
+        width:100%;
+        padding:12px 14px;
+        background:#111;
+        border:1px solid rgba(255,255,255,.18);
+        border-radius:12px;
+        color:#fff;
+        outline:none;
+        box-sizing:border-box;
+        "/>
 
-            wrap.appendChild(box);
-            document.body.appendChild(wrap);
+        <div id="msx_pw_btn" tabindex="0" style="
+        margin-top:12px;
+        display:flex;
+        align-items:center;
+        justify-content:center;
+        padding:12px 14px;
+        border:1px solid rgba(255,255,255,.22);
+        border-radius:12px;
+        user-select:none;
+        cursor:pointer;
+        ">Unlock</div>
 
-            const inp = box.querySelector('#msx_pw_inp');
-            const btn = box.querySelector('#msx_pw_btn');
-            const err = box.querySelector('#msx_pw_err');
+        <div id="msx_pw_err" style="margin-top:10px;opacity:.85;display:none;color:#ff6b6b">
+        Wrong password
+        </div>
 
-            const submit = () => {
-                const v = (inp.value || '').trim();
-                if (v === PASS) {
-                    setAuthed(true);
-                    wrap.remove();
-                } else {
-                    err.style.display = 'block';
-                    inp.value = '';
-                    inp.focus();
-                }
-            };
+        <div style="margin-top:10px;opacity:.55;font-size:12px">
+        Tip: on TV use PIN
+        </div>
+        `;
 
-            // максимально “пробивные” события
-            btn.addEventListener('click', submit, true);
-            btn.addEventListener('pointerup', submit, true);
-            btn.addEventListener('touchend', (e) => { e.preventDefault(); submit(); }, true);
+        wrap.appendChild(box);
+        document.body.appendChild(wrap);
 
-            inp.addEventListener('keydown', (e) => {
-                if (e.key === 'Enter') submit();
-            }, true);
+        const inp = box.querySelector('#msx_pw_inp');
+        const btn = box.querySelector('#msx_pw_btn');
+        const err = box.querySelector('#msx_pw_err');
 
-                // На ТВ/пульте: Enter/OK часто приходит как Enter
-                document.addEventListener('keydown', (e) => {
-                    if (!document.getElementById('msx_fake_lock')) return;
-                    if (e.key === 'Enter') submit();
-                }, true);
+        const submit = () => {
+            const v = (inp.value || '').trim();
+            const ok = (v === PASS_TEXT) || (v === PASS_PIN);
 
-                    setTimeout(() => inp.focus(), 50);
-        }
-
-        function startLock() {
-            // уже авторизован — не мешаем
-            if (getAuthed()) return;
-
-            // если body ещё нет — подождём
-            if (!document.body) return setTimeout(startLock, 50);
-
-            mountLockOverlay();
-        }
-
-        // Запуск: сразу + несколько ретраев (чтобы не зависеть от событий Lampa)
-        startLock();
-        setTimeout(startLock, 200);
-        setTimeout(startLock, 800);
-
-        // “logout” для себя: Ctrl+Alt+L
-        document.addEventListener('keydown', (e) => {
-            if (e.ctrlKey && e.altKey && (e.key || '').toLowerCase() === 'l') {
-                setAuthed(false);
-                location.reload();
+            if (ok) {
+                setAuthed(true);
+                wrap.remove();
+                detachKeyGuard();
+                MAIN(); // <-- запускаем основной код ТОЛЬКО после unlock
+            } else {
+                err.style.display = 'block';
+                inp.value = '';
+                inp.focus();
             }
+        };
+
+        // клики/тач
+        btn.addEventListener('click', submit, true);
+        btn.addEventListener('pointerup', submit, true);
+        btn.addEventListener('touchend', (e) => { e.preventDefault(); submit(); }, true);
+
+        // enter в поле
+        inp.addEventListener('keydown', (e) => {
+            if (e.key === 'Enter') submit();
         }, true);
 
-    })();
+            setTimeout(() => inp.focus(), 50);
+    }
 
+    // =========================
+    // KEY GUARD: режем Lampa-обработчики
+    // =========================
+    let keyGuardInstalled = false;
 
-    // ============================================================================
+    function keyGuardHandler(e) {
+        // если lock не активен — не мешаем
+        if (!document.getElementById('msx_fake_lock')) return;
 
+        // ВАЖНО: даём input'у получать символы,
+        // но НЕ даём Lampa видеть эти события.
+        const t = e.target;
+        const isInput = t && (t.id === 'msx_pw_inp' || t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.isContentEditable);
+
+        if (isInput) {
+            // не трогаем default, только отрезаем всплытие/обработчики ниже
+            e.stopImmediatePropagation();
+            return;
+        }
+
+        // Для всего остального — полностью глушим, чтобы Lampa не “проглатывала” UI/фокус
+        e.preventDefault();
+        e.stopImmediatePropagation();
+
+        // Для пульта: Enter пытаемся сабмитнуть
+        if (e.key === 'Enter') {
+            const btn = document.getElementById('msx_pw_btn');
+            btn && btn.click();
+        }
+    }
+
+    function attachKeyGuard() {
+        if (keyGuardInstalled) return;
+        keyGuardInstalled = true;
+
+        // capture=true — чтобы перехватить раньше Lampa
+        window.addEventListener('keydown', keyGuardHandler, true);
+        window.addEventListener('keyup', keyGuardHandler, true);
+        window.addEventListener('keypress', keyGuardHandler, true);
+    }
+
+    function detachKeyGuard() {
+        if (!keyGuardInstalled) return;
+        keyGuardInstalled = false;
+
+        window.removeEventListener('keydown', keyGuardHandler, true);
+        window.removeEventListener('keyup', keyGuardHandler, true);
+        window.removeEventListener('keypress', keyGuardHandler, true);
+    }
+
+    // =========================
+    // STABILITY: если Lampa перерисовала DOM и overlay исчез — возвращаем
+    // =========================
+    function watchOverlay() {
+        const obs = new MutationObserver(() => {
+            if (getAuthed()) return;
+            if (!document.body) return;
+            if (!document.getElementById('msx_fake_lock')) ensureOverlay();
+        });
+
+            obs.observe(document.documentElement, { childList: true, subtree: true });
+    }
+
+    // =========================
+    // BOOT: lock-first
+    // =========================
+    function BOOT() {
+        if (getAuthed()) {
+            MAIN();
+            return;
+        }
+
+        // ждём body
+        if (!document.body) {
+            setTimeout(BOOT, 50);
+            return;
+        }
+
+        attachKeyGuard();
+        ensureOverlay();
+        watchOverlay();
+    }
+
+    // =========================
+    // MAIN: СЮДА ВСТАВЬ ВЕСЬ ТВОЙ ТЕКУЩИЙ modification.js
+    // =========================
+    function MAIN() {
+        // !!! ВСТАВЬ СЮДА ВЕСЬ ТВОЙ ТЕКУЩИЙ КОД modification.js БЕЗ ИЗМЕНЕНИЙ !!!
+        // Прямо целиком.
+
+//=================================================================================
+
+(function () {
+    'use strict';
 
     // ============================================================================
     // LOG MODES (0/1/2)
@@ -903,3 +981,9 @@ start();
 })();
 
 
+//================================================================
+}
+
+BOOT();
+
+})();
