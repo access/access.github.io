@@ -76,6 +76,7 @@
         "https://skaztv.online/store.js",
         "https://skaztv.online/js/tricks.js",
 
+        "https://aviamovie.github.io/surs.js",
         // "https://amiv1.github.io/lampa/rating.js",
         "scripts/rating.js",
 
