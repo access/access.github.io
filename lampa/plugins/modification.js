@@ -19,6 +19,7 @@
         "https://bylampa.github.io/old_card_status.js",
         "https://bylampa.github.io/backmenu.js",
         "https://bylampa.github.io/cub_off.js",
+        "https://bylampa.github.io/source.js",
         "https://bylampa.github.io/addon.js",
 
         "https://bdvburik.github.io/title.js",
