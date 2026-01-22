@@ -31,7 +31,11 @@
         // "https://skaztv.online/store.js",
         // "https://skaztv.online/js/tricks.js",
 
-        "https://amiv1.github.io/lampa/rating.js",
+        //origin rating
+        //"https://amiv1.github.io/lampa/rating.js",
+        //with API key my rating copy
+        "scripts/rating.js",
+
         "https://amikdn.github.io/buttons.js"
     ];
 
