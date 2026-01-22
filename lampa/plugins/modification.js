@@ -5,7 +5,7 @@
     const PLUGINS = [
         "http://skaz.tv/onlines.js",
         "http://skaz.tv/vcdn.js",
-        "https://netfix.cc/netfix.js",
+        // "https://netfix.cc/netfix.js",
         "https://tsynik.github.io/lampa/e.js",
         "https://and7ey.github.io/lampa/stats.js",
         "https://and7ey.github.io/lampa/head_filter.js",
