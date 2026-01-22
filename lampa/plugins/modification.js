@@ -6,7 +6,7 @@
     // =========================
     const AUTH_KEY = 'msx_fake_auth_ok_v2';
 
-    // base64(SHA-256("blacklampa"))
+    // base64(SHA-256("password"))
     const PASS_HASH_B64 = 'OYSLjH1s/Uduag74P/8sT8zqtogR8n8RLrNt/6dEL08=';
 
     // =========================
