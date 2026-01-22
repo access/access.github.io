@@ -61,7 +61,7 @@
     };
 
     // IMPORTANT: фикс "прыгающего" шрифта/лейаута + совместимость
-    const POPUP_FONT = '12px/1.35 "DejaVu Sans Mono","Liberation Mono","Ubuntu Mono","Noto Sans Mono",Consolas,Menlo,Monaco,monospace';
+    const POPUP_FONT = '12px/1.35 Courier, "Courier New", monospace';
 
     // гарантированно не валим рантайм, даже если браузер на ТВ капризный
     function safe(fn) { try { return fn(); } catch (_) { return null; } }
