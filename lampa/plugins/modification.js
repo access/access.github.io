@@ -60,7 +60,7 @@
 
         // "https://bylampa.github.io/redirect.js",
         // "https://bylampa.github.io/trailer_off.js",
-        "https://bylampa.github.io/color_vote.js",
+        // "https://bylampa.github.io/color_vote.js",
         "https://bylampa.github.io/seas_and_eps.js",
         // "https://bylampa.github.io/old_card_status.js",
         // "https://bylampa.github.io/backmenu.js",
