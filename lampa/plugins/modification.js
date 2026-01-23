@@ -178,7 +178,13 @@
     sel: 0,
     hashBox: null,
     hashText: null,
-    hashCopy: null
+    hashCopy: null,
+
+    // LIVE HASH (added)
+    liveTimer: null,
+    liveSeq: 0,
+    lastPlain: '',
+    lastHash: ''
   };
 
   function blurInputHard() {
@@ -219,6 +225,50 @@
         }
       } catch (_) { }
     };
+  }
+
+  // LIVE HASH (added): подсветка совпадения, без изменения HTML
+  function setLiveHighlight(isMatch) {
+    if (!ui.hashBox || !ui.hashText) return;
+    // зелёный/красный делаем только стилями существующих элементов
+    ui.hashText.style.color = isMatch ? 'rgba(140,255,170,.95)' : 'rgba(255,170,170,.95)';
+    ui.hashBox.style.opacity = isMatch ? '.95' : '.8';
+  }
+
+  // LIVE HASH (added): хэш на лету по вводу (debounce + защита от гонок)
+  function liveHashFromInput() {
+    if (!ui.inp) return;
+
+    var v = String(ui.inp.value || '').trim();
+    ui.lastPlain = v;
+
+    if (!v) {
+      // ничего не показываем/не подсвечиваем если пусто
+      try { ui.hashBox && (ui.hashBox.style.display = 'none'); } catch (_) { }
+      return;
+    }
+
+    // crypto must exist
+    if (!(window.crypto && crypto.subtle && window.TextEncoder)) return;
+
+    if (ui.liveTimer) clearTimeout(ui.liveTimer);
+    var seq = ++ui.liveSeq;
+
+    ui.liveTimer = setTimeout(function () {
+      sha256Base64(v).then(function (hash) {
+        // если за время вычисления ввод изменился — игнор
+        if (seq !== ui.liveSeq) return;
+        if (String(ui.lastPlain || '') !== v) return;
+
+        ui.lastHash = hash;
+
+        // показываем пару сразу
+        showHashPair(AUTH_KEY, hash);
+
+        // live-highlight: совпадает ли с JSON
+        setLiveHighlight(!!findAuthEntry(AUTH_KEY, hash));
+      }).catch(function () { });
+    }, 140);
   }
 
   function ensureOverlay() {
@@ -300,6 +350,10 @@
     ui.inp.addEventListener('keydown', function (e) {
       if (e.key === 'Enter' || (e.keyCode || 0) === 13) submit();
     }, true);
+
+    // LIVE HASH (added): вывод пары на лету
+    ui.inp.addEventListener('input', liveHashFromInput, true);
+    ui.inp.addEventListener('keyup', liveHashFromInput, true); // на некоторых ТВ input бывает кривой
   }
 
   function focusInput() {
@@ -307,6 +361,9 @@
     try { ui.err && (ui.err.style.display = 'none'); } catch (_) { }
     setSel(0);
     try { ui.inp.focus(); } catch (_) { }
+
+    // LIVE HASH (added): при фокусе тоже обновим (если уже что-то введено)
+    liveHashFromInput();
   }
 
   function submit() {
