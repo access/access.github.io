@@ -197,8 +197,14 @@
   }
 
   function setSel(n) {
+    // COPY: selectable only when visible + exists
+    var maxSel = 1;
+    try {
+      if (ui.hashCopy && ui.hashBox && ui.hashBox.style && ui.hashBox.style.display !== 'none') maxSel = 2;
+    } catch (_) { }
+
     if (n < 0) n = 0;
-    if (n > 2) n = 2;
+    if (n > maxSel) n = maxSel;
     ui.sel = n;
 
     var a = ui.bEnter, b = ui.bUnlock, c = ui.hashCopy;
@@ -356,6 +362,14 @@
     ui.hashText = box.querySelector('#msx_hash_text');
     ui.hashCopy = box.querySelector('#msx_hash_copy');
 
+    // COPY: make focusable for TV engines that respect focus() / tabindex
+    try {
+      if (ui.hashCopy) {
+        ui.hashCopy.setAttribute('tabindex', '0');
+        ui.hashCopy.setAttribute('role', 'button');
+      }
+    } catch (_) { }
+
     blurInputHard();
     setSel(0);
 
@@ -444,15 +458,13 @@
     e.preventDefault();
     e.stopImmediatePropagation();
 
+    // left/right keep old behavior (Enter/Unlock row)
     if (k === 37 || k === 21) { setSel(0); return; }
     if (k === 39 || k === 22) { setSel(1); return; }
 
-    if (k === 38 || k === 19) { setSel(0); return; }
-    if (k === 40 || k === 20) { setSel(1); return; }
-
+    // up/down: cycle through Enter -> Unlock -> Copy (when visible)
     if (k === 40 || k === 20) { setSel(ui.sel + 1); return; } // вниз
     if (k === 38 || k === 19) { setSel(ui.sel - 1); return; } // вверх
-
 
     if (k === 13 || k === 23) {
       if (ui.sel === 0) focusInput();
