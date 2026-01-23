@@ -319,13 +319,25 @@
 
       // hash pair (no focus, no inputs)
       '<div id="msx_hash_box" style="' +
-      'margin-top:10px;display:none;font-size:12px;opacity:.65;' +
+      'margin-top:10px;display:none;font-size:16px;opacity:.65;' +
       'word-break:break-all;user-select:text' +
       '">' +
-      '<span id="msx_hash_text"></span>' +
-      '<span id="msx_hash_copy" style="margin-left:8px;cursor:pointer;opacity:.8">📋</span>' +
+
+      '<div id="msx_hash_text" style="margin-bottom:8px;"></div>' +
+
+      '<div id="msx_hash_copy" style="' +
+      'display:inline-block;' +
+      'padding:8px 14px;' +
+      'border:1px solid rgba(255,255,255,.25);' +
+      'border-radius:10px;' +
+      'cursor:pointer;' +
+      'opacity:.85;' +
+      'user-select:none;' +
+      '">' +
+      '📋 Copy' +
       '</div>' +
 
+      '</div>' +
       '<div style="margin-top:10px;opacity:.55;font-size:12px">TV: use arrows and OK</div>';
 
     wrap.appendChild(box);
