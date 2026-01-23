@@ -21,6 +21,7 @@
 
   var popupQueue = [];
   var popupBodyEl = null;
+  var popupScrollEl = null;
   var popupProgressFillEl = null;
   var popupProgressSeq = 0;
   var renderedCount = 0;
@@ -34,7 +35,7 @@
   };
 
   var POPUP_FONT = '12px/1.35 Courier, "Courier New", monospace';
-  var SCROLL_TOL_PX = 8;
+  var SCROLL_TOL_PX = 40;
   var scrollToBottomPending = false;
 
   function safe(fn) { try { return fn(); } catch (_) { return null; } }
@@ -84,8 +85,8 @@
       'background:rgba(0,0,0,0.44)',
       'color:#fff',
       'border-radius:12px',
-      'padding:10px 12px',
       'box-sizing:border-box',
+      'padding:0',
       'font:' + POPUP_FONT,
       'font-weight:500',
       'font-variant-ligatures:none',
@@ -98,7 +99,12 @@
       'pointer-events:' + (LOG_MODE === 2 ? 'auto' : 'none'),
       'white-space:pre-wrap',
       'word-break:break-word',
-      'overflow:auto',
+      // IMPORTANT:
+      // The popup frame must never scroll, otherwise the progressbar/header "moves away".
+      // Scroll is isolated to the body wrapper.
+      'overflow:hidden',
+      'display:flex',
+      'flex-direction:column',
       'box-shadow:0 10px 30px rgba(0,0,0,0.25)'
     ].join(';');
 
@@ -111,6 +117,7 @@
       'top:0',
       'left:0',
       'right:0',
+      'z-index:3',
       'height:2px',
       'background:rgba(255,255,255,0.15)',
       'border-radius:12px 12px 0 0',
@@ -131,34 +138,60 @@
     ].join(';');
     progress.appendChild(progressFill);
 
+    var headerWrap = document.createElement('div');
+    headerWrap.style.cssText = [
+      'position:relative',
+      'z-index:1',
+      'box-sizing:border-box',
+      'padding:10px 12px 6px 12px',
+      'pointer-events:none'
+    ].join(';');
+
     var title = document.createElement('div');
     title.id = '__autoplugin_popup_title';
     title.style.cssText = [
       'font:' + POPUP_FONT,
       'font-weight:700',
-      'margin-bottom:6px',
+      'margin:0',
       'opacity:.95'
     ].join(';');
     title.textContent = String(TITLE_PREFIX) + ' (mode=' + String(LOG_MODE) + ')';
 
+    var bodyWrap = document.createElement('div');
+    bodyWrap.style.cssText = [
+      'position:relative',
+      'z-index:1',
+      'box-sizing:border-box',
+      'padding:0 12px 12px 12px',
+      'overflow:auto',
+      '-webkit-overflow-scrolling:touch',
+      // Allow scrolling only in LOG_MODE=2 (debug). In mode=1 popup must never block UI.
+      'pointer-events:' + (LOG_MODE === 2 ? 'auto' : 'none'),
+      // Flexbox: allow bodyWrap to shrink and become scrollable
+      'flex:1 1 auto',
+      'min-height:0'
+    ].join(';');
+
     var body = document.createElement('div');
     body.id = '__autoplugin_popup_body';
 
-    // Progress bar must be inside popup element (for z-index/clip), but above title/content.
     el.appendChild(progress);
-    el.appendChild(title);
-    el.appendChild(body);
+    headerWrap.appendChild(title);
+    bodyWrap.appendChild(body);
+    el.appendChild(headerWrap);
+    el.appendChild(bodyWrap);
     document.body.appendChild(el);
 
     popupEl = el;
     popupBodyEl = body;
+    popupScrollEl = bodyWrap;
     popupProgressFillEl = progressFill;
     renderedCount = 0;
 
     // Sticky-to-bottom state is derived from scroll position.
     // We only respect manual scroll in LOG_MODE=2 (debug).
     try {
-      el.addEventListener('scroll', function () {
+      bodyWrap.addEventListener('scroll', function () {
         try {
           if (LOG_MODE !== 2) return;
           // no-op: scrollTop is checked on every flush before auto-scroll decisions
@@ -257,14 +290,15 @@
 
   function flushPopupToDom() {
     var el = ensurePopup();
-    if (!el || !popupBodyEl) return;
+    var scrollEl = popupScrollEl;
+    if (!el || !popupBodyEl || !scrollEl) return;
 
     // Sticky-to-bottom:
     // - if user is already at bottom => keep auto-scrolling
     // - if user scrolled up (LOG_MODE=2) => never yank them down
     // - if popup was just shown => scroll down once (if "sticky" is allowed)
     var forceStick = (LOG_MODE !== 2);
-    var wasAtBottom = forceStick ? true : isAtBottom(el);
+    var wasAtBottom = forceStick ? true : isAtBottom(scrollEl);
     var shouldScroll = forceStick || scrollToBottomPending || wasAtBottom;
 
     if (renderedCount > popupQueue.length) renderedCount = 0;
@@ -286,7 +320,7 @@
       if (lastDom && lastQ && lastDom.textContent !== lastQ.line) lastDom.textContent = lastQ.line;
     });
 
-    if (shouldScroll) scrollToBottom(el);
+    if (shouldScroll) scrollToBottom(scrollEl);
     scrollToBottomPending = false;
   }
 
@@ -324,13 +358,14 @@
   function showPopupNow() {
     if (LOG_MODE === 0) return;
     var el = ensurePopup();
-    if (!el) return;
+    var scrollEl = popupScrollEl;
+    if (!el || !scrollEl) return;
 
     el.style.display = 'block';
     restartPopupProgressBar();
     // If popup becomes visible, ensure the latest lines are visible.
     // In LOG_MODE=2 we only auto-scroll if user was already at bottom.
-    scrollToBottomPending = (LOG_MODE !== 2) ? true : isAtBottom(el);
+    scrollToBottomPending = (LOG_MODE !== 2) ? true : isAtBottom(scrollEl);
 
     if (popupTimer) clearTimeout(popupTimer);
     popupTimer = setTimeout(function () {
@@ -440,6 +475,7 @@
     safe(function () {
       if (!popupEl) return;
       try { popupEl.style.pointerEvents = (LOG_MODE === 2 ? 'auto' : 'none'); } catch (_) { }
+      try { if (popupScrollEl) popupScrollEl.style.pointerEvents = (LOG_MODE === 2 ? 'auto' : 'none'); } catch (_) { }
       try {
         var t = document.getElementById('__autoplugin_popup_title');
         if (t) t.textContent = String(TITLE_PREFIX) + ' (mode=' + String(LOG_MODE) + ')';

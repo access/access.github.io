@@ -135,8 +135,10 @@
         function lsDel(k) {
           try {
             if (window.Lampa && Lampa.Storage) {
-              if (Lampa.Storage.remove) return Lampa.Storage.remove(k);
-              if (Lampa.Storage.set) return Lampa.Storage.set(k, null);
+              // IMPORTANT:
+              // Lampa.Storage.remove() is NOT a "remove key" helper (it is used for sync workers).
+              // To reliably reset flags (and bypass internal cache), write an empty value.
+              if (Lampa.Storage.set) return Lampa.Storage.set(k, '');
             }
           } catch (_) { }
         }
@@ -205,7 +207,8 @@
         // IMPORTANT:
         // - No direct localStorage edits for plugins list.
         // - Use Lampa.Storage (same approach as lampa/scripts/addon.js).
-        // - No location.reload: user may restart the app manually if needed.
+        // - No location.reload for delete actions: user may restart the app manually if needed.
+        //   (Factory reset is handled separately and DOES reload.)
         // ============================================================================
         var MANAGED_URLS = {};
 
@@ -307,23 +310,117 @@
           return removed;
         }
 
-        function resetLampa() {
-          // Existing "Сброс Lampa до заводских" must:
-          // - remove ALL plugins via official API
-          // - reset AutoPlugin first-install flags so the next start behaves like fresh install
-          // Reload removed: user may restart the app manually if needed.
-          // WHY: a factory reset must never keep "first install completed" state.
-          resetFirstInstallFlags();
-          removeAllPluginsLampa();
+        function clearAllCookies() {
+          try {
+            var cookies = String(document.cookie || '').split(';');
+            var host = String(location.hostname || '');
+            var domainDot = host ? '.' + host : '';
+            var path = String(location.pathname || '/');
 
-          // Also reset common startpage keys (via storage API).
-          try { lsDel('start_page'); } catch (_) { }
-          try { lsDel('startpage'); } catch (_) { }
-          try { lsDel('start_page_source'); } catch (_) { }
-          try { lsDel('start_page_title'); } catch (_) { }
-          try { lsDel('start_page_component'); } catch (_) { }
-          try { lsDel('start_page_params'); } catch (_) { }
-          try { lsDel('start_page_url'); } catch (_) { }
+            for (var i = 0; i < cookies.length; i++) {
+              var c = cookies[i];
+              var eq = c.indexOf('=');
+              var name = (eq >= 0 ? c.slice(0, eq) : c).trim();
+              if (!name) continue;
+
+              // path variants
+              document.cookie = name + '=; expires=Thu, 01 Jan 1970 00:00:00 GMT; path=/';
+              document.cookie = name + '=; expires=Thu, 01 Jan 1970 00:00:00 GMT; path=' + path;
+
+              // domain variants (some browsers require explicit domain)
+              if (host) {
+                document.cookie = name + '=; expires=Thu, 01 Jan 1970 00:00:00 GMT; path=/; domain=' + host;
+                document.cookie = name + '=; expires=Thu, 01 Jan 1970 00:00:00 GMT; path=/; domain=' + domainDot;
+                document.cookie = name + '=; expires=Thu, 01 Jan 1970 00:00:00 GMT; path=' + path + '; domain=' + host;
+                document.cookie = name + '=; expires=Thu, 01 Jan 1970 00:00:00 GMT; path=' + path + '; domain=' + domainDot;
+              }
+            }
+          } catch (_) { }
+        }
+
+        function clearCachesBestEffort(done) {
+          done = done || function () { };
+          var called = false;
+          function doneOnce() {
+            if (called) return;
+            called = true;
+            try { done(); } catch (_) { }
+          }
+
+          // Safety timeout: never block reload on slow/broken cache backends.
+          var t = null;
+          try { t = setTimeout(doneOnce, 800); } catch (_) { t = null; }
+
+          try {
+            if (!window.caches || !caches.keys || !caches["delete"]) return doneOnce();
+            caches.keys().then(function (keys) {
+              var ps = [];
+              for (var i = 0; i < keys.length; i++) {
+                try { ps.push(caches["delete"](keys[i])); } catch (_) { }
+              }
+              return Promise.all(ps);
+            }).then(function () {
+              try { if (t) clearTimeout(t); } catch (_) { }
+              doneOnce();
+            })["catch"](function () {
+              try { if (t) clearTimeout(t); } catch (_) { }
+              doneOnce();
+            });
+          } catch (_) {
+            try { if (t) clearTimeout(t); } catch (_) { }
+            doneOnce();
+          }
+        }
+
+        // Factory reset helper (domain-level):
+        // Clears localStorage/sessionStorage/cookies and optional caches, then reloads the page.
+        // NOTE: IndexedDB is intentionally not touched here (too risky/complex for TV engines).
+        function factoryResetAndReload(reason) {
+          reason = String(reason || 'factory reset');
+
+          showWarn('Settings', 'factory reset', reason);
+
+          // Reset AutoPlugin flags explicitly (even though localStorage.clear() will wipe them).
+          // WHY: keeps behavior correct even if clear() is blocked in the environment.
+          resetFirstInstallFlags();
+
+          // Best-effort: clear auth flag too (auth module stores it in localStorage via Lampa.Storage).
+          try {
+            var authKey = (BL.Auth && BL.Auth.getKey) ? BL.Auth.getKey() : '';
+            if (authKey && window.Lampa && Lampa.Storage && Lampa.Storage.set) Lampa.Storage.set(authKey, '');
+          } catch (_) { }
+          try {
+            var authKey2 = (BL.Auth && BL.Auth.getKey) ? BL.Auth.getKey() : '';
+            if (authKey2) localStorage.removeItem(String(authKey2));
+          } catch (_) { }
+
+          // Plugins (best-effort via official API) in case localStorage.clear() throws.
+          try { removeAllPluginsLampa(); } catch (_) { }
+
+          // Storage
+          try { localStorage.clear(); } catch (_) { }
+          try { sessionStorage && sessionStorage.clear && sessionStorage.clear(); } catch (_) { }
+
+          // Cookies
+          clearAllCookies();
+
+          // Caches (non-blocking best-effort)
+          clearCachesBestEffort(function () {
+            setTimeout(function () {
+              try { location.reload(); }
+              catch (_) {
+                try { location.href = location.href; } catch (__e) { }
+              }
+            }, 50);
+          });
+        }
+
+        BL.Factory = BL.Factory || {};
+        if (!BL.Factory.resetAndReload) BL.Factory.resetAndReload = factoryResetAndReload;
+
+        function resetLampa() {
+          // Existing "Сброс Lampa до заводских" must fully reset domain data and re-lock auth.
+          factoryResetAndReload('user action');
         }
 
         // ============================================================================
