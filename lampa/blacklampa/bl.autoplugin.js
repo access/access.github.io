@@ -419,7 +419,7 @@
                   title: 'Удалить все плагины Lampa'
                 },
                 field: {
-                  name: 'Плагины',
+                  name: 'Удалить все Плагины Lampa',
                   description: 'Удаляет ВСЕ установленные плагины через Lampa.Storage (как в addon.js). Автоперезагрузка отключена.'
                 },
                 onChange: function () {
@@ -440,7 +440,7 @@
                   title: 'Удалить плагины AutoPlugin Installer'
                 },
                 field: {
-                  name: 'AutoPlugin Installer',
+                  name: 'Удалить плагины "AutoPlugin Installer"',
                   description: 'Удаляет только плагины из bl.autoplugin.json (plugins + disabled). Ручные плагины не трогает.'
                 },
                 onChange: function () {
