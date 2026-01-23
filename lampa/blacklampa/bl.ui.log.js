@@ -13,7 +13,7 @@
 
   var TITLE_PREFIX = 'BlackLampa log';
 
-	  var POPUP_MS = 20000;
+	  var POPUP_MS = 10000;
 	  var MAX_LINES = 120;
 
 	  var popupEl = null;
