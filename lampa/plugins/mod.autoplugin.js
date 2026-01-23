@@ -403,14 +403,13 @@
             }
 
             // [ADDED] mirror popup logs to console with correct level
-            function consoleMirror(tag, source, message, extra, line) {
+            function consoleMirror(tag, source, message, extra) {
                 try {
                     if (LOG_MODE === 0) return;
 
                     var pfx = '[[AutoPlugin]] ' + String(tag) + ' ' + String(source) + ': ' + String(message);
                     var ex = extra ? String(extra) : '';
 
-                    // choose console method
                     var fn = null;
                     if (tag === 'ERR') fn = (console && console.error) ? console.error : null;
                     else if (tag === 'WRN') fn = (console && console.warn) ? console.warn : null;
@@ -420,7 +419,6 @@
 
                     if (!fn) return;
 
-                    // keep it clickable/inspectable: pass extra separately when present
                     if (ex) fn.call(console, pfx, ex);
                     else fn.call(console, pfx);
                 } catch (_) { }
@@ -433,7 +431,7 @@
                 var key = makeKey(tag, source, message, extra);
 
                 // [ADDED] console mirror
-                consoleMirror(tag, source, message, extra, line);
+                consoleMirror(tag, source, message, extra);
 
                 pushPopupLine(line, tag, key);
             }
@@ -723,6 +721,109 @@
                 }, 250);
             }
 
+            // ============================================================================
+            // [ADDED] status string helper + settings refresh
+            // ============================================================================
+            function getStatusInfoString() {
+                try {
+                    var doneFlag = lsGet(AP_KEYS.done) === '1';
+                    var sigOk = (lsGet(AP_KEYS.sig) || '') === calcPluginsSig();
+                    var ts = toInt(lsGet(AP_KEYS.ts), 0);
+                    return 'done=' + (doneFlag ? '1' : '0') + ', sig=' + (sigOk ? 'ok' : 'no') + (ts ? (', ts=' + new Date(ts).toLocaleString()) : '');
+                } catch (_) {
+                    return 'done=?, sig=?';
+                }
+            }
+
+            function refreshInstallerSettingsUi() {
+                try {
+                    if (!window.Lampa || !Lampa.SettingsApi) return;
+                    // пересобираем компонент заново, чтобы "Статус" пересчитался сразу
+                    initInstallerSettings();
+                    try { if (Lampa.Settings && Lampa.Settings.update) Lampa.Settings.update(); } catch (_) { }
+                } catch (_) { }
+            }
+
+            // ============================================================================
+            // [ADDED] hard reset (localStorage + cookies + startpage) + reload
+            // ============================================================================
+            function clearAllCookies() {
+                try {
+                    var cookies = String(document.cookie || '').split(';');
+                    var host = String(location.hostname || '');
+                    var domainDot = host ? '.' + host : '';
+                    for (var i = 0; i < cookies.length; i++) {
+                        var c = cookies[i];
+                        var eq = c.indexOf('=');
+                        var name = (eq >= 0 ? c.slice(0, eq) : c).trim();
+                        if (!name) continue;
+
+                        // path=/ (основное)
+                        document.cookie = name + '=; expires=Thu, 01 Jan 1970 00:00:00 GMT; path=/';
+                        // на всякий: текущий path
+                        document.cookie = name + '=; expires=Thu, 01 Jan 1970 00:00:00 GMT; path=' + String(location.pathname || '/');
+                        // domain variants (некоторые браузеры/окружения)
+                        if (host) {
+                            document.cookie = name + '=; expires=Thu, 01 Jan 1970 00:00:00 GMT; path=/; domain=' + host;
+                            document.cookie = name + '=; expires=Thu, 01 Jan 1970 00:00:00 GMT; path=/; domain=' + domainDot;
+                        }
+                    }
+                } catch (_) { }
+            }
+
+            function resetLampaToDefaultsAndReload() {
+                try { showWarn('reset', 'Lampa factory reset', 'clearing localStorage + cookies + startpage'); } catch (_) { }
+
+                // startpage (на случай если clear() не сработает)
+                try { lsDel('start_page'); } catch (_) { }
+                try { lsDel('startpage'); } catch (_) { }
+                try { lsDel('start_page_source'); } catch (_) { }
+                try { lsDel('start_page_title'); } catch (_) { }
+                try { lsDel('start_page_component'); } catch (_) { }
+                try { lsDel('start_page_params'); } catch (_) { }
+                try { lsDel('start_page_url'); } catch (_) { }
+
+                // main wipe
+                try { if (window.localStorage && localStorage.clear) localStorage.clear(); } catch (_) { }
+                try { if (window.sessionStorage && sessionStorage.clear) sessionStorage.clear(); } catch (_) { }
+                clearAllCookies();
+
+                // небольшой таймаут, чтобы успело примениться
+                setTimeout(function () {
+                    try { location.reload(); } catch (_) { }
+                }, 250);
+            }
+
+            // ============================================================================
+            // [ADDED] reload countdown after first install
+            // ============================================================================
+            var RELOAD_AFTER_FIRST_INSTALL = true;
+            var RELOAD_DELAY_SEC = 10;
+
+            function scheduleReloadCountdown(sec, reason) {
+                try {
+                    if (!RELOAD_AFTER_FIRST_INSTALL) return;
+                    var n = toInt(sec, 10);
+                    if (n <= 0) { location.reload(); return; }
+
+                    showInfo('reload', 'scheduled', String(reason || 'first install') + ' | in ' + String(n) + 's');
+
+                    var t = setInterval(function () {
+                        n--;
+                        if (n > 0) {
+                            showDbg('reload', 'countdown', String(n));
+                            return;
+                        }
+                        clearInterval(t);
+                        showOk('reload', 'now', 'location.reload()');
+                        try { location.reload(); } catch (_) { }
+                    }, 1000);
+                } catch (_) { }
+            }
+
+            // ============================================================================
+            // Settings UI
+            // ============================================================================
             function initInstallerSettings() {
                 try {
                     if (!window.Lampa || !Lampa.SettingsApi) return;
@@ -757,6 +858,8 @@
                             onChange: function () {
                                 resetFirstInstallFlags();
                                 try { if (Lampa.Noty && Lampa.Noty.show) Lampa.Noty.show('AutoPlugin: флаг сброшен'); } catch (_) { }
+                                // чтобы статус обновился сразу
+                                refreshInstallerSettingsUi();
                             }
                         });
                         added = true;
@@ -782,17 +885,63 @@
                                 if (String(value) === '1') {
                                     resetFirstInstallFlags();
                                     try { if (Lampa.Noty && Lampa.Noty.show) Lampa.Noty.show('AutoPlugin: флаг сброшен'); } catch (_) { }
-                                    try { if (Lampa.Settings && Lampa.Settings.update) Lampa.Settings.update(); } catch (_) { }
+                                    refreshInstallerSettingsUi();
                                 }
                             }
                         });
                     }
 
+                    // [ADDED] новый пункт: полный сброс Lampa + reload
+                    var addedFactory = false;
+
                     try {
-                        var doneFlag = lsGet(AP_KEYS.done) === '1';
-                        var sigOk = (lsGet(AP_KEYS.sig) || '') === calcPluginsSig();
-                        var ts = toInt(lsGet(AP_KEYS.ts), 0);
-                        var info = 'done=' + (doneFlag ? '1' : '0') + ', sig=' + (sigOk ? 'ok' : 'no') + (ts ? (', ts=' + new Date(ts).toLocaleString()) : '');
+                        Lampa.SettingsApi.addParam({
+                            component: 'autoplugin_installer',
+                            param: {
+                                name: 'ap_factory_reset',
+                                type: 'button',
+                                text: 'Сбросить Lampa до заводских (localStorage+cookies)',
+                                title: 'Сбросить Lampa до заводских (localStorage+cookies)'
+                            },
+                            field: {
+                                name: 'Сброс Lampa',
+                                description: 'Полный сброс: localStorage + cookies + startpage, затем перезагрузка страницы.'
+                            },
+                            onChange: function () {
+                                try { if (Lampa.Noty && Lampa.Noty.show) Lampa.Noty.show('AutoPlugin: сброс Lampa...'); } catch (_) { }
+                                resetLampaToDefaultsAndReload();
+                            }
+                        });
+                        addedFactory = true;
+                    } catch (_) { }
+
+                    if (!addedFactory) {
+                        Lampa.SettingsApi.addParam({
+                            component: 'autoplugin_installer',
+                            param: {
+                                name: 'ap_factory_reset_select',
+                                type: 'select',
+                                values: {
+                                    '0': '—',
+                                    '1': 'Сбросить Lampa до заводских (localStorage+cookies)'
+                                },
+                                default: '0'
+                            },
+                            field: {
+                                name: 'Сброс Lampa',
+                                description: 'Выбери “Сбросить…”, чтобы очистить localStorage + cookies + startpage и перезагрузить.'
+                            },
+                            onChange: function (value) {
+                                if (String(value) === '1') {
+                                    resetLampaToDefaultsAndReload();
+                                }
+                            }
+                        });
+                    }
+
+                    // status (пересчитывается при каждом initInstallerSettings)
+                    try {
+                        var info = getStatusInfoString();
 
                         Lampa.SettingsApi.addParam({
                             component: 'autoplugin_installer',
@@ -812,6 +961,9 @@
                 } catch (_) { }
             }
 
+            // ============================================================================
+            // global error hooks
+            // ============================================================================
             var currentPlugin = null;
 
             function onWinError(ev) {
@@ -868,6 +1020,9 @@
                 mo.observe(document.documentElement, { childList: true, subtree: true });
             });
 
+            // ============================================================================
+            // MAIN
+            // ============================================================================
             function start() {
                 patchBlockNetwork();
 
@@ -890,6 +1045,8 @@
 
                     if (isFirstInstallCompleted()) {
                         showOk('AutoPlugin', 'skip', 'first-install flag present (no plugin checks)');
+                        // на всякий — если меню было открыто рано, статус уже корректный, но пусть пересчитается
+                        refreshInstallerSettingsUi();
                         finalizeLoggingAfterDone();
                         doneSafe();
                         return;
@@ -898,7 +1055,18 @@
                     ensureInstalledAll(PLUGINS).then(function () {
                         markFirstInstallCompleted();
 
+                        // [ADDED] сразу обновить меню (чтобы done=1 появился без ручного F5)
+                        refreshInstallerSettingsUi();
+
+                        // [ADDED] verify flags (чтобы в логах было "реально всё ок")
+                        var info = getStatusInfoString();
+                        if (info.indexOf('done=1') >= 0) showOk('flags', 'written', info);
+                        else showWarn('flags', 'unexpected', info);
+
                         showOk('AutoPlugin', 'done', 'total=' + String(PLUGINS.length));
+
+                        // [ADDED] auto reload после первой установки (как в reload.js: location.reload()) :contentReference[oaicite:0]{index=0}
+                        scheduleReloadCountdown(RELOAD_DELAY_SEC, 'first install completed');
 
                         finalizeLoggingAfterDone();
                         doneSafe();
