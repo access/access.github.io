@@ -117,6 +117,99 @@
             function lsSet(k, v) { try { localStorage.setItem(k, String(v)); } catch (_) { } }
             function lsDel(k) { try { localStorage.removeItem(k); } catch (_) { } }
 
+            // ============================================================================
+            // [ADDED] plugins_blacklist hard wipe + guard (localStorage)
+            // ============================================================================
+            var LS_PLUGINS_BLACKLIST_KEY = 'plugins_blacklist';
+            var LS_PLUGINS_BLACKLIST_EMPTY = '[]'; // важно: обычно там JSON-строка массива
+
+            function clearPluginsBlacklist(reason) {
+                try {
+                    var cur = null;
+                    try { cur = localStorage.getItem(LS_PLUGINS_BLACKLIST_KEY); } catch (_) { }
+                    if (cur !== null && cur !== LS_PLUGINS_BLACKLIST_EMPTY) {
+                        try { localStorage.setItem(LS_PLUGINS_BLACKLIST_KEY, LS_PLUGINS_BLACKLIST_EMPTY); } catch (_) { }
+                        try { showOk('LS', 'plugins_blacklist cleared', String(reason || '')); } catch (_) { }
+                    } else if (cur === null) {
+                        // если ключа нет — создаём пустой, чтобы код, ожидающий строку, не падал
+                        try { localStorage.setItem(LS_PLUGINS_BLACKLIST_KEY, LS_PLUGINS_BLACKLIST_EMPTY); } catch (_) { }
+                        try { showDbg('LS', 'plugins_blacklist seeded', String(reason || '')); } catch (_) { }
+                    }
+                } catch (_) { }
+            }
+
+            function patchPluginsBlacklistGuard() {
+                // 1) очистить сразу
+                clearPluginsBlacklist('boot');
+
+                // 2) перехват setItem/removeItem/clear
+                try {
+                    if (window.localStorage && !localStorage.__ap_bl_guarded) {
+                        localStorage.__ap_bl_guarded = true;
+
+                        var _setItem = localStorage.setItem;
+                        var _removeItem = localStorage.removeItem;
+                        var _clear = localStorage.clear;
+
+                        // setItem guard
+                        localStorage.setItem = function (k, v) {
+                            try {
+                                if (String(k) === LS_PLUGINS_BLACKLIST_KEY) {
+                                    // игнорируем любые попытки записать не пустое
+                                    if (String(v) !== LS_PLUGINS_BLACKLIST_EMPTY) {
+                                        try { showWarn('LS', 'blocked write plugins_blacklist', String(v).slice(0, 180)); } catch (_) { }
+                                    }
+                                    return _setItem.call(localStorage, LS_PLUGINS_BLACKLIST_KEY, LS_PLUGINS_BLACKLIST_EMPTY);
+                                }
+                            } catch (_) { }
+                            return _setItem.apply(localStorage, arguments);
+                        };
+
+                        // removeItem guard (не даём удалить, всегда держим пустым)
+                        localStorage.removeItem = function (k) {
+                            try {
+                                if (String(k) === LS_PLUGINS_BLACKLIST_KEY) {
+                                    try { showWarn('LS', 'blocked remove plugins_blacklist', ''); } catch (_) { }
+                                    return _setItem.call(localStorage, LS_PLUGINS_BLACKLIST_KEY, LS_PLUGINS_BLACKLIST_EMPTY);
+                                }
+                            } catch (_) { }
+                            return _removeItem.apply(localStorage, arguments);
+                        };
+
+                        // clear guard (после clear() возвращаем пустой ключ)
+                        localStorage.clear = function () {
+                            var r = _clear.apply(localStorage, arguments);
+                            try { _setItem.call(localStorage, LS_PLUGINS_BLACKLIST_KEY, LS_PLUGINS_BLACKLIST_EMPTY); } catch (_) { }
+                            try { showWarn('LS', 'localStorage.clear detected', 're-seeded plugins_blacklist'); } catch (_) { }
+                            return r;
+                        };
+
+                        try { showOk('LS', 'plugins_blacklist guard installed', 'setItem/removeItem/clear'); } catch (_) { }
+                    }
+                } catch (_) { }
+
+                // 3) storage-event (если меняется из другого контекста)
+                try {
+                    window.addEventListener('storage', function (e) {
+                        try {
+                            if (!e) return;
+                            if (String(e.key || '') !== LS_PLUGINS_BLACKLIST_KEY) return;
+                            clearPluginsBlacklist('storage-event');
+                        } catch (_) { }
+                    });
+                } catch (_) { }
+
+                // 4) страховка (на ТВ иногда пишут мимо наших хуков)
+                try {
+                    if (!window.__ap_bl_watchdog) {
+                        window.__ap_bl_watchdog = setInterval(function () {
+                            clearPluginsBlacklist('watchdog');
+                        }, 2000);
+                    }
+                } catch (_) { }
+            }
+
+
             function djb2(str) {
                 var h = 5381;
                 for (var i = 0; i < str.length; i++) h = ((h << 5) + h) + str.charCodeAt(i);
@@ -1100,6 +1193,9 @@
             // ============================================================================
             function start() {
                 patchBlockNetwork();
+
+                // [ADDED] keep plugins_blacklist always empty
+                patchPluginsBlacklistGuard();
 
                 if (LOG_MODE !== 0) {
                     attachGlobalHooks();
