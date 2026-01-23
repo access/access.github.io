@@ -13,20 +13,11 @@
         // ==== START: AutoPlugin (твой код) ====
         //=======================================================================-=============================================
 
-
-
         (function () {
             'use strict';
 
             // ============================================================================
             // LOG MODES (0/1/2)
-            // 0 = OFF (никаких window events, никакого popup)
-            // 1 = BOOT (лог + window events ТОЛЬКО до "AutoPlugin done", потом отписка)
-            // 2 = FULL (как сейчас: лог + window events всегда)
-            //
-            // Переопределение без правки файла:
-            //   ?aplog=0|1|2   (или ?apmode=0|1|2)
-            // Также читает localStorage.aplog если есть.
             // ============================================================================
 
             var DEFAULT_LOG_MODE = 1;
@@ -72,7 +63,7 @@
             var LOG_MODE = getLogMode();
 
             // ============================================================================
-            // список автоплагинов (НЕ УДАЛЯЮ закомментированные — оставляю как есть)
+            // список автоплагинов
             // ============================================================================
             var PLUGINS = [
                 // "https://bdvburik.github.io/title.js",
@@ -95,7 +86,6 @@
                 "https://bylampa.github.io/cub_off.js",
                 // "https://bylampa.github.io/addon.js",
 
-
                 //sources...
                 "https://tsynik.github.io/lampa/e.js",
                 "https://bylampa.github.io/source.js",
@@ -106,7 +96,6 @@
                 // "https://bwa.to/rc",
                 "https://bwa.to/cloud.js",
 
-
                 "https://skaztv.online/store.js",
                 "https://skaztv.online/js/tricks.js",
 
@@ -116,7 +105,7 @@
             ];
 
             // ============================================================================
-            // ONE-TIME INSTALL FLAGS (наши личные ключи localStorage)
+            // ONE-TIME INSTALL FLAGS
             // ============================================================================
             var AP_KEYS = {
                 done: 'ap_installer_done_v1',
@@ -128,17 +117,13 @@
             function lsSet(k, v) { try { localStorage.setItem(k, String(v)); } catch (_) { } }
             function lsDel(k) { try { localStorage.removeItem(k); } catch (_) { } }
 
-            // лёгкая сигнатура списка плагинов (чтобы “первый запуск” повторялся при изменении массива)
             function djb2(str) {
                 var h = 5381;
                 for (var i = 0; i < str.length; i++) h = ((h << 5) + h) + str.charCodeAt(i);
-                // >>>0 => uint32
                 return (h >>> 0).toString(16);
             }
 
             function calcPluginsSig() {
-                // сохраняем видимость изменений: порядок + содержимое
-                // (комменты/закомментированные строки не участвуют, т.к. их нет в массиве)
                 var base = 'v1|' + PLUGINS.join('\n');
                 return djb2(base);
             }
@@ -147,7 +132,6 @@
                 var done = lsGet(AP_KEYS.done) === '1';
                 if (!done) return false;
 
-                // если сигнатура изменилась — считаем, что нужен “первый запуск” снова
                 var sig = lsGet(AP_KEYS.sig);
                 if (!sig) return false;
 
@@ -175,8 +159,7 @@
             var popupEl = null;
             var popupTimer = null;
 
-            // инкрементальный лог (не фулл перерендер)
-            var popupQueue = []; // {line, tag, key, ts, count}
+            var popupQueue = [];
             var popupBodyEl = null;
             var renderedCount = 0;
 
@@ -267,7 +250,6 @@
                 try { while (node && node.firstChild) node.removeChild(node.firstChild); } catch (_) { }
             }
 
-            // PERF coalesce + throttled flush
             var COALESCE_WINDOW_MS = 1500;
             var lastKey = '';
             var lastIdx = -1;
@@ -420,11 +402,39 @@
                 showPopupNow();
             }
 
+            // [ADDED] mirror popup logs to console with correct level
+            function consoleMirror(tag, source, message, extra, line) {
+                try {
+                    if (LOG_MODE === 0) return;
+
+                    var pfx = '[[AutoPlugin]] ' + String(tag) + ' ' + String(source) + ': ' + String(message);
+                    var ex = extra ? String(extra) : '';
+
+                    // choose console method
+                    var fn = null;
+                    if (tag === 'ERR') fn = (console && console.error) ? console.error : null;
+                    else if (tag === 'WRN') fn = (console && console.warn) ? console.warn : null;
+                    else if (tag === 'INF') fn = (console && console.info) ? console.info : null;
+                    else if (tag === 'DBG') fn = (console && console.debug) ? console.debug : null;
+                    else fn = (console && console.log) ? console.log : null;
+
+                    if (!fn) return;
+
+                    // keep it clickable/inspectable: pass extra separately when present
+                    if (ex) fn.call(console, pfx, ex);
+                    else fn.call(console, pfx);
+                } catch (_) { }
+            }
+
             function showLine(tag, source, message, extra) {
                 if (LOG_MODE === 0) return;
                 var ts = new Date().toLocaleTimeString();
                 var line = '[' + ts + '] ' + tag + ' ' + source + ': ' + message + (extra ? (' | ' + extra) : '');
                 var key = makeKey(tag, source, message, extra);
+
+                // [ADDED] console mirror
+                consoleMirror(tag, source, message, extra, line);
+
                 pushPopupLine(line, tag, key);
             }
 
@@ -565,10 +575,10 @@
             }
 
             // ============================================================================
-            // IMPORTANT PART: "вшивание" в систему Lampa (plugins storage), а не просто load()
+            // IMPORTANT PART
             // ============================================================================
-            var AUTO_ENABLE_DISABLED = true;   // если плагин найден, но status=0 -> включить (status=1)
-            var INJECT_NEWLY_INSTALLED = true; // для новых: сразу <script src=...> (как itemON)
+            var AUTO_ENABLE_DISABLED = true;
+            var INJECT_NEWLY_INSTALLED = true;
 
             function absUrl(u) {
                 try { return String(new URL(String(u), location.href).href); } catch (_) { return String(u); }
@@ -624,7 +634,6 @@
                 return new Promise(function (resolve) {
                     var urlAbs = absUrl(url);
 
-                    // network policy block
                     var br = isBlockedUrl(urlAbs);
                     if (br) {
                         logBlocked(urlAbs, 'install', br);
@@ -684,14 +693,12 @@
             }
 
             function ensureInstalledAll(list) {
-                // sequential, без async/await (TV-friendly)
                 return new Promise(function (resolve) {
                     var i = 0;
                     function step() {
                         if (i >= list.length) { resolve(true); return; }
                         var url = list[i++];
                         ensureInstalledOne(url).then(function () {
-                            // не стопаемся на ошибках
                             setTimeout(step, 0);
                         });
                     }
@@ -699,12 +706,9 @@
                 });
             }
 
-            // ============================================================================
-            // wait for Lampa
-            // ============================================================================
             function waitLampa(cb) {
                 var tries = 0;
-                var max = 240; // 240 * 250ms = 60s
+                var max = 240;
                 var t = setInterval(function () {
                     tries++;
                     if (window.Lampa && Lampa.Listener && Lampa.Storage) {
@@ -719,15 +723,10 @@
                 }, 250);
             }
 
-            // ============================================================================
-            // Settings UI: пункт в настройках + кнопка сброса флага
-            // (по стилю SettingsApi как в твоём rating.js) :contentReference[oaicite:1]{index=1}
-            // ============================================================================
             function initInstallerSettings() {
                 try {
                     if (!window.Lampa || !Lampa.SettingsApi) return;
 
-                    // если API умеет удалять компонент — уберём старый на всякий
                     try {
                         if (Lampa.SettingsApi.removeComponent) {
                             Lampa.SettingsApi.removeComponent('autoplugin_installer');
@@ -740,9 +739,6 @@
                         icon: '<svg width="24" height="24" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M12 2a10 10 0 100 20 10 10 0 000-20zm1 14.5h-2v-2h2v2zm0-4h-2V6h2v6.5z" fill="currentColor"/></svg>'
                     });
 
-                    // кнопка: сбросить флаг
-                    // NOTE: в разных сборках Lampa тип "button" может называться иначе.
-                    // Я делаю "button" и fallback на select, чтобы не ломалось.
                     var added = false;
 
                     try {
@@ -751,7 +747,6 @@
                             param: {
                                 name: 'ap_reset',
                                 type: 'button',
-                                // некоторые сборки читают "text", некоторые "title"
                                 text: 'Сбросить флаг первой установки',
                                 title: 'Сбросить флаг первой установки'
                             },
@@ -768,7 +763,6 @@
                     } catch (_) { }
 
                     if (!added) {
-                        // fallback: select
                         Lampa.SettingsApi.addParam({
                             component: 'autoplugin_installer',
                             param: {
@@ -788,19 +782,17 @@
                                 if (String(value) === '1') {
                                     resetFirstInstallFlags();
                                     try { if (Lampa.Noty && Lampa.Noty.show) Lampa.Noty.show('AutoPlugin: флаг сброшен'); } catch (_) { }
-                                    // вернём обратно в "—"
                                     try { if (Lampa.Settings && Lampa.Settings.update) Lampa.Settings.update(); } catch (_) { }
                                 }
                             }
                         });
                     }
 
-                    // инфо-строка (просто чтобы видеть статус)
                     try {
-                        var done = lsGet(AP_KEYS.done) === '1';
+                        var doneFlag = lsGet(AP_KEYS.done) === '1';
                         var sigOk = (lsGet(AP_KEYS.sig) || '') === calcPluginsSig();
                         var ts = toInt(lsGet(AP_KEYS.ts), 0);
-                        var info = 'done=' + (done ? '1' : '0') + ', sig=' + (sigOk ? 'ok' : 'no') + (ts ? (', ts=' + new Date(ts).toLocaleString()) : '');
+                        var info = 'done=' + (doneFlag ? '1' : '0') + ', sig=' + (sigOk ? 'ok' : 'no') + (ts ? (', ts=' + new Date(ts).toLocaleString()) : '');
 
                         Lampa.SettingsApi.addParam({
                             component: 'autoplugin_installer',
@@ -820,9 +812,6 @@
                 } catch (_) { }
             }
 
-            // ============================================================================
-            // global error hooks (attach/detach by mode)
-            // ============================================================================
             var currentPlugin = null;
 
             function onWinError(ev) {
@@ -866,9 +855,6 @@
                 }
             }
 
-            // ============================================================================
-            // popup early-create (body-late safe)
-            // ============================================================================
             safe(function () {
                 if (LOG_MODE === 0) return;
                 if (!document || !document.documentElement) return;
@@ -882,9 +868,6 @@
                 mo.observe(document.documentElement, { childList: true, subtree: true });
             });
 
-            // ============================================================================
-            // MAIN
-            // ============================================================================
             function start() {
                 patchBlockNetwork();
 
@@ -901,50 +884,36 @@
                         return;
                     }
 
-                    // настройки (пункт меню + сброс)
                     initInstallerSettings();
 
                     safe(function () { var el = ensurePopup(); if (el) el.style.display = 'none'; });
 
-                    // === КЛЮЧЕВОЕ: одноразовый режим ===
                     if (isFirstInstallCompleted()) {
                         showOk('AutoPlugin', 'skip', 'first-install flag present (no plugin checks)');
                         finalizeLoggingAfterDone();
                         doneSafe();
-
                         return;
                     }
 
-                    // именно "вшиваем" в Lampa и инжектим только новые
                     ensureInstalledAll(PLUGINS).then(function () {
-                        // фиксируем, что наш modification.js отработал до конца (одноразовый сценарий завершён)
                         markFirstInstallCompleted();
 
                         showOk('AutoPlugin', 'done', 'total=' + String(PLUGINS.length));
 
-                        // mode=1 -> отписка от window событий после done
                         finalizeLoggingAfterDone();
                         doneSafe();
-
                     });
                 });
             }
 
             start();
 
-
             //=======================================================================-=============================================
 
-            // IMPORTANT: когда твой start() закончится — вызови doneSafe()
             function doneSafe() {
                 try { done && done(); } catch (_) { }
             }
 
-            // Если ты не хочешь руками лезть внутрь большого кода:
-            // просто в конце твоего ensureInstalledAll().then(...) добавь doneSafe().
-            // и в ветке skip (isFirstInstallCompleted) тоже doneSafe().
-            //
-            // Чтобы не тянуть, делаем страховку: если за 90 секунд не вызвали — всё равно отпустим пайплайн
             setTimeout(doneSafe, 90000);
 
         })();
