@@ -197,18 +197,25 @@
   }
 
   function setSel(n) {
-    ui.sel = (n === 1) ? 1 : 0;
-    if (!ui.bEnter || !ui.bUnlock) return;
+    if (n < 0) n = 0;
+    if (n > 2) n = 2;
+    ui.sel = n;
 
-    var a = ui.bEnter, b = ui.bUnlock;
-    a.style.outline = 'none'; a.style.background = 'transparent';
-    b.style.outline = 'none'; b.style.background = 'transparent';
+    var a = ui.bEnter, b = ui.bUnlock, c = ui.hashCopy;
+    [a, b, c].forEach(function (x) {
+      if (!x) return;
+      x.style.outline = 'none';
+      x.style.background = 'transparent';
+    });
 
-    var on = (ui.sel === 0) ? a : b;
-    on.style.outline = '2px solid rgba(255,255,255,.65)';
-    on.style.background = 'rgba(255,255,255,.08)';
+    var on = (ui.sel === 0) ? a : (ui.sel === 1) ? b : c;
+    if (on) {
+      on.style.outline = '2px solid rgba(255,255,255,.65)';
+      on.style.background = 'rgba(255,255,255,.08)';
+      if (on.focus) on.focus();
+    }
 
-    if (ui.sel === 1) blurInputHard();
+    if (ui.sel !== 0) blurInputHard();
   }
 
   function showHashPair(key, hash) {
@@ -447,9 +454,14 @@
     if (k === 38 || k === 19) { setSel(0); return; }
     if (k === 40 || k === 20) { setSel(1); return; }
 
+    if (k === 40 || k === 20) { setSel(ui.sel + 1); return; } // вниз
+    if (k === 38 || k === 19) { setSel(ui.sel - 1); return; } // вверх
+
+
     if (k === 13 || k === 23) {
       if (ui.sel === 0) focusInput();
-      else submit();
+      else if (ui.sel === 1) submit();
+      else if (ui.sel === 2 && ui.hashCopy) ui.hashCopy.click();
       return;
     }
   }
