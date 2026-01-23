@@ -4,10 +4,9 @@
   // =========================
   // CONFIG
   // =========================
-  const AUTH_KEY = 'msx_fake_auth_ok_v2';
 
-  // base64(SHA-256("password"))
-  const PASS_HASH_B64 = 'OYSLjH1s/Uduag74P/8sT8zqtogR8n8RLrNt/6dEL08=';
+  // текущий ключ (можно менять, архитектура поддерживает список)
+  const AUTH_KEY = 'msx_fake_auth_ok_v2';
 
   // Пайплайн шагов (легко менять порядок/добавлять)
   // IMPORTANT: файлы лежат рядом с modification.js
@@ -15,6 +14,9 @@
     { name: 'preload', src: 'mod.preload.js' },
     { name: 'autoplugin', src: 'mod.autoplugin.js' }
   ];
+
+  // auth list file (рядом)
+  const AUTH_JSON = 'mod.auth.json';
 
   // =========================
   // STORAGE (Lampa)
@@ -40,11 +42,15 @@
     } catch (_) { return ''; }
   }
   var BASE = baseDir();
+
   function abs(u) {
     try { return String(new URL(String(u), BASE || location.href).href); }
     catch (_) { return String(u); }
   }
 
+  // =========================
+  // Pipeline loader
+  // =========================
   function loadScriptSeq(url) {
     return new Promise(function (resolve, reject) {
       try {
@@ -93,121 +99,58 @@
   }
 
   // =========================
-  // SHA-256 base64
+  // AUTH LIST (JSON)
   // =========================
-  function btoaBytes(u8) {
-    var s = '';
-    for (var i = 0; i < u8.length; i++) s += String.fromCharCode(u8[i]);
-    return btoa(s);
-  }
+  // поддержка обеих структур:
+  // 1) { "auth": [ {key, hash}, ... ] }
+  // 2) [ { "auth": [ ... ] } ]   <-- как ты написал
+  var AUTH_LIST = [];
 
-  function utf8Bytes(str) {
-    var out = [];
-    for (var i = 0; i < str.length; i++) {
-      var c = str.charCodeAt(i);
-      if (c < 0x80) out.push(c);
-      else if (c < 0x800) out.push(0xC0 | (c >> 6), 0x80 | (c & 0x3F));
-      else if (c >= 0xD800 && c <= 0xDBFF && i + 1 < str.length) {
-        var c2 = str.charCodeAt(++i);
-        var cp = 0x10000 + (((c & 0x3FF) << 10) | (c2 & 0x3FF));
-        out.push(0xF0 | (cp >> 18), 0x80 | ((cp >> 12) & 0x3F), 0x80 | ((cp >> 6) & 0x3F), 0x80 | (cp & 0x3F));
-      } else out.push(0xE0 | (c >> 12), 0x80 | ((c >> 6) & 0x3F), 0x80 | (c & 0x3F));
-    }
-    return new Uint8Array(out);
-  }
-
-  function rotr(x, n) { return (x >>> n) | (x << (32 - n)); }
-  function sha256_u8(bytes) {
-    var K = [
-      0x428a2f98, 0x71374491, 0xb5c0fbcf, 0xe9b5dba5, 0x3956c25b, 0x59f111f1, 0x923f82a4, 0xab1c5ed5,
-      0xd807aa98, 0x12835b01, 0x243185be, 0x550c7dc3, 0x72be5d74, 0x80deb1fe, 0x9bdc06a7, 0xc19bf174,
-      0xe49b69c1, 0xefbe4786, 0x0fc19dc6, 0x240ca1cc, 0x2de92c6f, 0x4a7484aa, 0x5cb0a9dc, 0x76f988da,
-      0x983e5152, 0xa831c66d, 0xb00327c8, 0xbf597fc7, 0xc6e00bf3, 0xd5a79147, 0x06ca6351, 0x14292967,
-      0x27b70a85, 0x2e1b2138, 0x4d2c6dfc, 0x53380d13, 0x650a7354, 0x766a0abb, 0x81c2c92e, 0x92722c85,
-      0xa2bfe8a1, 0xa81a664b, 0xc24b8b70, 0xc76c51a3, 0xd192e819, 0xd6990624, 0xf40e3585, 0x106aa070,
-      0x19a4c116, 0x1e376c08, 0x2748774c, 0x34b0bcb5, 0x391c0cb3, 0x4ed8aa4a, 0x5b9cca4f, 0x682e6ff3,
-      0x748f82ee, 0x78a5636f, 0x84c87814, 0x8cc70208, 0x90befffa, 0xa4506ceb, 0xbef9a3f7, 0xc67178f2
-    ];
-    var H = [0x6a09e667, 0xbb67ae85, 0x3c6ef372, 0xa54ff53a, 0x510e527f, 0x9b05688c, 0x1f83d9ab, 0x5be0cd19];
-
-    var l = bytes.length;
-    var bitLenHi = (l / 0x20000000) | 0;
-    var bitLenLo = (l << 3) >>> 0;
-
-    var withOne = l + 1;
-    var padLen = (withOne % 64 <= 56) ? (56 - (withOne % 64)) : (56 + 64 - (withOne % 64));
-    var total = withOne + padLen + 8;
-
-    var m = new Uint8Array(total);
-    m.set(bytes, 0);
-    m[l] = 0x80;
-
-    var p = total - 8;
-    m[p + 0] = (bitLenHi >>> 24) & 0xff;
-    m[p + 1] = (bitLenHi >>> 16) & 0xff;
-    m[p + 2] = (bitLenHi >>> 8) & 0xff;
-    m[p + 3] = (bitLenHi >>> 0) & 0xff;
-    m[p + 4] = (bitLenLo >>> 24) & 0xff;
-    m[p + 5] = (bitLenLo >>> 16) & 0xff;
-    m[p + 6] = (bitLenLo >>> 8) & 0xff;
-    m[p + 7] = (bitLenLo >>> 0) & 0xff;
-
-    var W = new Uint32Array(64);
-
-    for (var i = 0; i < total; i += 64) {
-      for (var t = 0; t < 16; t++) {
-        var j = i + (t * 4);
-        W[t] = ((m[j] << 24) | (m[j + 1] << 16) | (m[j + 2] << 8) | (m[j + 3])) >>> 0;
-      }
-      for (var t2 = 16; t2 < 64; t2++) {
-        var s0 = (rotr(W[t2 - 15], 7) ^ rotr(W[t2 - 15], 18) ^ (W[t2 - 15] >>> 3)) >>> 0;
-        var s1 = (rotr(W[t2 - 2], 17) ^ rotr(W[t2 - 2], 19) ^ (W[t2 - 2] >>> 10)) >>> 0;
-        W[t2] = (W[t2 - 16] + s0 + W[t2 - 7] + s1) >>> 0;
-      }
-
-      var a = H[0], b = H[1], c = H[2], d = H[3], e = H[4], f = H[5], g = H[6], h = H[7];
-
-      for (var t3 = 0; t3 < 64; t3++) {
-        var S1 = (rotr(e, 6) ^ rotr(e, 11) ^ rotr(e, 25)) >>> 0;
-        var ch = ((e & f) ^ ((~e) & g)) >>> 0;
-        var temp1 = (h + S1 + ch + K[t3] + W[t3]) >>> 0;
-        var S0 = (rotr(a, 2) ^ rotr(a, 13) ^ rotr(a, 22)) >>> 0;
-        var maj = ((a & b) ^ (a & c) ^ (b & c)) >>> 0;
-        var temp2 = (S0 + maj) >>> 0;
-
-        h = g; g = f; f = e; e = (d + temp1) >>> 0;
-        d = c; c = b; b = a; a = (temp1 + temp2) >>> 0;
-      }
-
-      H[0] = (H[0] + a) >>> 0; H[1] = (H[1] + b) >>> 0; H[2] = (H[2] + c) >>> 0; H[3] = (H[3] + d) >>> 0;
-      H[4] = (H[4] + e) >>> 0; H[5] = (H[5] + f) >>> 0; H[6] = (H[6] + g) >>> 0; H[7] = (H[7] + h) >>> 0;
-    }
-
-    var out = new Uint8Array(32);
-    for (var k = 0; k < 8; k++) {
-      out[k * 4 + 0] = (H[k] >>> 24) & 0xff;
-      out[k * 4 + 1] = (H[k] >>> 16) & 0xff;
-      out[k * 4 + 2] = (H[k] >>> 8) & 0xff;
-      out[k * 4 + 3] = (H[k] >>> 0) & 0xff;
-    }
-    return out;
-  }
-
-  function sha256Base64(str, cb) {
+  function normalizeAuthJson(j) {
     try {
-      if (window.crypto && crypto.subtle && window.TextEncoder) {
-        var enc = new TextEncoder().encode(str);
-        crypto.subtle.digest('SHA-256', enc).then(function (buf) {
-          cb(btoaBytes(new Uint8Array(buf)));
-        }).catch(function () {
-          cb(btoaBytes(sha256_u8(utf8Bytes(str))));
-        });
-      } else {
-        cb(btoaBytes(sha256_u8(utf8Bytes(str))));
+      if (!j) return [];
+      if (Array.isArray(j)) {
+        // берем первый объект с auth или склеиваем все
+        var out = [];
+        for (var i = 0; i < j.length; i++) {
+          var a = j[i] && j[i].auth;
+          if (Array.isArray(a)) out = out.concat(a);
+        }
+        return out;
       }
-    } catch (e) {
-      cb(btoaBytes(sha256_u8(utf8Bytes(str))));
+      if (Array.isArray(j.auth)) return j.auth;
+    } catch (_) { }
+    return [];
+  }
+
+  function loadAuthList() {
+    var url = abs(AUTH_JSON);
+    return fetch(url, { cache: 'no-store' })
+      .then(function (r) { return r.json(); })
+      .then(function (j) { AUTH_LIST = normalizeAuthJson(j); })
+      .catch(function () { AUTH_LIST = []; });
+  }
+
+  function findAuthEntry(key, hash) {
+    // поддержка расширения формата в будущем (roles, ttl etc) — просто игнорим лишнее
+    for (var i = 0; i < AUTH_LIST.length; i++) {
+      var a = AUTH_LIST[i];
+      if (a && String(a.key || '') === String(key) && String(a.hash || '') === String(hash)) return a;
     }
+    return null;
+  }
+
+  // =========================
+  // SHA-256 base64 (WebCrypto ONLY)
+  // =========================
+  function sha256Base64(str) {
+    var enc = new TextEncoder().encode(str);
+    return crypto.subtle.digest('SHA-256', enc).then(function (buf) {
+      var bytes = new Uint8Array(buf);
+      var bin = '';
+      for (var i = 0; i < bytes.length; i++) bin += String.fromCharCode(bytes[i]);
+      return btoa(bin);
+    });
   }
 
   // =========================
@@ -226,7 +169,17 @@
   // =========================
   // UI
   // =========================
-  var ui = { wrap: null, inp: null, bEnter: null, bUnlock: null, err: null, sel: 0 };
+  var ui = {
+    wrap: null,
+    inp: null,
+    bEnter: null,
+    bUnlock: null,
+    err: null,
+    sel: 0,
+    hashBox: null,
+    hashText: null,
+    hashCopy: null
+  };
 
   function blurInputHard() {
     if (!ui.inp) return;
@@ -250,6 +203,22 @@
     on.style.background = 'rgba(255,255,255,.08)';
 
     if (ui.sel === 1) blurInputHard();
+  }
+
+  function showHashPair(key, hash) {
+    if (!ui.hashBox || !ui.hashText || !ui.hashCopy) return;
+
+    var pair = '{"key":"' + String(key) + '","hash":"' + String(hash) + '"}';
+    ui.hashText.textContent = pair;
+    ui.hashBox.style.display = 'block';
+
+    ui.hashCopy.onclick = function () {
+      try {
+        if (navigator.clipboard && navigator.clipboard.writeText) {
+          navigator.clipboard.writeText(pair);
+        }
+      } catch (_) { }
+    };
   }
 
   function ensureOverlay() {
@@ -297,6 +266,16 @@
       '">Unlock</div>' +
       '</div>' +
       '<div id="msx_pw_err" style="margin-top:10px;opacity:.85;display:none;color:#ff6b6b">Wrong password</div>' +
+
+      // hash pair (no focus, no inputs)
+      '<div id="msx_hash_box" style="' +
+      'margin-top:10px;display:none;font-size:12px;opacity:.65;' +
+      'word-break:break-all;user-select:text' +
+      '">' +
+      '<span id="msx_hash_text"></span>' +
+      '<span id="msx_hash_copy" style="margin-left:8px;cursor:pointer;opacity:.8">📋</span>' +
+      '</div>' +
+
       '<div style="margin-top:10px;opacity:.55;font-size:12px">TV: use arrows and OK</div>';
 
     wrap.appendChild(box);
@@ -307,6 +286,10 @@
     ui.bEnter = box.querySelector('#msx_btn_enter');
     ui.bUnlock = box.querySelector('#msx_btn_unlock');
     ui.err = box.querySelector('#msx_pw_err');
+
+    ui.hashBox = box.querySelector('#msx_hash_box');
+    ui.hashText = box.querySelector('#msx_hash_text');
+    ui.hashCopy = box.querySelector('#msx_hash_copy');
 
     blurInputHard();
     setSel(0);
@@ -332,9 +315,20 @@
     blurInputHard();
 
     var v = String(ui.inp.value || '').trim();
+    if (!v) return;
 
-    sha256Base64(v, function (h) {
-      if (h === PASS_HASH_B64) {
+    // crypto must exist
+    if (!(window.crypto && crypto.subtle && window.TextEncoder)) {
+      try { ui.err && (ui.err.style.display = 'block'); } catch (_) { }
+      try { ui.err && (ui.err.textContent = 'No WebCrypto'); } catch (_) { }
+      return;
+    }
+
+    sha256Base64(v).then(function (hash) {
+      // показываем пару для добавления в JSON
+      showHashPair(AUTH_KEY, hash);
+
+      if (findAuthEntry(AUTH_KEY, hash)) {
         setAuthed(true);
         detachKeyGuard();
         try { ui.wrap && ui.wrap.remove(); } catch (_) { }
@@ -345,6 +339,8 @@
         setSel(0);
         blurInputHard();
       }
+    }).catch(function () {
+      try { ui.err && (ui.err.style.display = 'block'); } catch (_) { }
     });
   }
 
@@ -387,8 +383,6 @@
       else submit();
       return;
     }
-
-    return;
   }
 
   function attachKeyGuard() {
@@ -427,5 +421,6 @@
     watchOverlay();
   }
 
-  BOOT();
+  // сначала грузим JSON (иначе сравнивать нечего)
+  loadAuthList().then(BOOT);
 })();
