@@ -10,6 +10,28 @@
   function lsGet(k) { try { return localStorage.getItem(k); } catch (_) { return null; } }
   function lsSet(k, v) { try { localStorage.setItem(k, String(v)); } catch (_) { } }
 
+  // Preload must be executed only AFTER successful auth (PHASE 1).
+  // It modifies localStorage to set default settings/state.
+  function log(level, message, extra) {
+    try {
+      if (BL.Log) {
+        if (level === 'ERR' && BL.Log.showError) return BL.Log.showError('Preload', message, extra);
+        if (level === 'WRN' && BL.Log.showWarn) return BL.Log.showWarn('Preload', message, extra);
+        if (level === 'OK' && BL.Log.showOk) return BL.Log.showOk('Preload', message, extra);
+        if (level === 'INF' && BL.Log.showInfo) return BL.Log.showInfo('Preload', message, extra);
+        if (level === 'DBG' && BL.Log.showDbg) return BL.Log.showDbg('Preload', message, extra);
+      }
+    } catch (_) { }
+    try {
+      var line = '[BlackLampa] ' + String(level) + ' Preload: ' + String(message) + (extra ? (' | ' + String(extra)) : '');
+      var fn = (console && console.log) ? console.log : null;
+      if (level === 'ERR' && console && console.error) fn = console.error;
+      else if (level === 'WRN' && console && console.warn) fn = console.warn;
+      else if (level === 'DBG' && console && console.debug) fn = console.debug;
+      if (fn) fn.call(console, line);
+    } catch (_) { }
+  }
+
   function normalizeRoot(obj) {
     try {
       if (!obj || typeof obj !== 'object' || Array.isArray(obj)) return null;
@@ -24,7 +46,7 @@
     try {
       var map = normalizeRoot(obj);
       if (!map) {
-        try { console.log('[BL][preload] root is not object map'); } catch (_) { }
+        log('WRN', 'root is not object map', '');
         return;
       }
 
@@ -48,9 +70,9 @@
       }
 
       lsSet(FLAG, '1');
-      try { console.log('[BL][preload] applied keys=' + keys.length); } catch (_) { }
+      log('OK', 'applied', 'keys=' + String(keys.length));
     } catch (e) {
-      try { console.log('[BL][preload] apply error', e && e.message ? e.message : e); } catch (_) { }
+      log('ERR', 'apply error', e && e.message ? e.message : e);
     }
   }
 
@@ -69,7 +91,7 @@
       try {
         // already applied
         if (lsGet(FLAG) === '1') {
-          try { console.log('[BL][preload] skip (flag)'); } catch (_) { }
+          log('DBG', 'skip (flag)', '');
           return resolve(true);
         }
 
@@ -89,7 +111,7 @@
             applyJson(obj);
             resolve(true);
           }).catch(function (e) {
-            try { console.log('[BL][preload] fetch error', e && e.message ? e.message : e); } catch (_) { }
+            log('WRN', 'fetch error', e && e.message ? e.message : e);
             resolve(false);
           });
           return;
@@ -103,16 +125,15 @@
           if (xhr.status >= 200 && xhr.status < 300) {
             try { applyJson(JSON.parse(xhr.responseText || '{}')); } catch (_) { }
           } else {
-            try { console.log('[BL][preload] xhr status', xhr.status); } catch (_) { }
+            log('WRN', 'xhr status', xhr.status);
           }
           resolve(true);
         };
         xhr.send(null);
       } catch (e2) {
-        try { console.log('[BL][preload] load error', e2 && e2.message ? e2.message : e2); } catch (_) { }
+        log('ERR', 'load error', e2 && e2.message ? e2.message : e2);
         resolve(false);
       }
     });
   };
 })();
-

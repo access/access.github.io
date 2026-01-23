@@ -13,7 +13,15 @@
   }
 
   // ============================================================================
-  // NETWORK BLOCK (как в mod.autoplugin.js)
+  // NETWORK POLICY (как в mod.autoplugin.js)
+  //
+  // Цель:
+  // - блокировать трекеры/статистику и нежелательные домены (Yandex / Google / Stats)
+  // - блокировать BWA CORS check (/cors/check) чтобы не засорять сеть
+  // - подменять CUB blacklist на [] (чтобы внешние blacklist не отключали плагины)
+  //
+  // Важно: install() должен быть идемпотентным — он вызывается и в PHASE 0 (до auth),
+  // и позже из AutoPlugin (на всякий случай).
   // ============================================================================
   var BLOCK_YANDEX_RE =
     /(^|\.)((yandex\.(ru|com|net|by|kz|ua|uz|tm|tj))|(ya\.ru)|(yastatic\.net)|(yandex\.(net|com)\.tr))$/i;
@@ -67,8 +75,11 @@
 
   function logBlocked(u, where, why, log) {
     var label = (why || 'Blocked');
-    try { console.log('[[AutoPlugin]] BLOCKED', label, where, u); } catch (_) { }
-    logCall(log, 'showWarn', where, 'BLOCKED (' + label + ')', u);
+    var extra = String(where) + ' | ' + String(u);
+    if (log) logCall(log, 'showWarn', 'Net', 'BLOCKED (' + label + ')', extra);
+    else {
+      try { console.warn('[BlackLampa] WRN Net: BLOCKED (' + label + ') | ' + extra); } catch (_) { }
+    }
   }
 
   // [ADDED] CUB blacklist override (return empty array)
@@ -105,6 +116,13 @@
   }
 
   function install(log) {
+    // idempotency guard (do not wrap fetch/xhr/ws twice)
+    if (BL.PolicyNetwork.__installed) {
+      logCall(log, 'showDbg', 'Policy', 'already installed', '');
+      return;
+    }
+    BL.PolicyNetwork.__installed = true;
+
     if (window.fetch) {
       var origFetch = window.fetch.bind(window);
       window.fetch = function (input, init) {
@@ -205,10 +223,9 @@
       window.WebSocket.prototype = OrigWS.prototype;
     }
 
-    logCall(log, 'showOk', 'policy', 'Network block installed', 'Yandex + Google/YouTube + Statistics + BWA:CORS(/cors/check) + CUB:blacklist([])');
+    logCall(log, 'showOk', 'Policy', 'installed', 'Yandex + Google/YouTube + Statistics + BWA:CORS(/cors/check) + CUB:blacklist([])');
   }
 
   BL.PolicyNetwork.install = install;
   BL.PolicyNetwork.isBlockedUrl = isBlockedUrl;
 })();
-

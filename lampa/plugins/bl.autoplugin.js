@@ -82,8 +82,7 @@
           if (BL.Log && BL.Log.init) {
             BL.Log.init({
               defaultMode: DEFAULT_LOG_MODE,
-              titlePrefix: 'AutoPlugin log',
-              consolePrefix: '[[AutoPlugin]]',
+              titlePrefix: 'BlackLampa log',
               popupMs: 20000,
               maxLines: 120
             });
@@ -482,8 +481,8 @@
 
         function logBlocked(u, where, why) {
           var label = (why || 'Blocked');
-          try { console.log('[[AutoPlugin]] BLOCKED', label, where, u); } catch (_) { }
-          showWarn(where, 'BLOCKED (' + label + ')', u);
+          var extra = String(where) + ' | ' + String(u);
+          showWarn('Net', 'BLOCKED (' + label + ')', extra);
         }
 
         function injectScript(urlAbs) {
@@ -598,6 +597,9 @@
         // MAIN (как было)
         // ============================================================================
         function start() {
+          // Policy/guards are installed in modification.js PHASE 0 (pre-auth).
+          // Calling them here again is intentional: these installs are idempotent and act as a safety net.
+
           // policy/network
           safe(function () { if (BL.PolicyNetwork && BL.PolicyNetwork.install) BL.PolicyNetwork.install(BL.Log); });
 
@@ -651,7 +653,11 @@
       }
 
       function startWithoutConfig(err) {
-        try { console.log('[BL][autoplugin] config load error', err && err.message ? err.message : err); } catch (_) { }
+        try {
+          var msg = err && err.message ? err.message : String(err);
+          if (BL.Log && BL.Log.showWarn) BL.Log.showWarn('AutoPlugin', 'config load error', msg);
+          else console.warn('[BlackLampa] WRN AutoPlugin: config load error | ' + msg);
+        } catch (_) { }
         startWithConfig({});
       }
 
@@ -671,4 +677,3 @@
     return startPromise;
   };
 })();
-

@@ -40,8 +40,17 @@
   }
 
   function installPluginsBlacklistGuard(log) {
-    // 1) очистить сразу
+    // This guard is intentionally aggressive:
+    // - `plugins_blacklist` must always be empty
+    // - some environments/plugins try to rewrite it frequently (including from other tabs/frames)
+    // поэтому: wipe on boot + patch setItem/removeItem/clear + storage-event + watchdog.
+
+    // 1) очистить сразу (even if already installed)
     clearPluginsBlacklist('boot', log);
+
+    // idempotency: this can be called from PHASE 0 boot and later from AutoPlugin.
+    if (BL.Storage.Guards.__pluginsBlacklistGuardInstalled) return;
+    BL.Storage.Guards.__pluginsBlacklistGuardInstalled = true;
 
     // 2) перехват setItem/removeItem/clear
     try {
@@ -91,13 +100,16 @@
 
     // 3) storage-event (если меняется из другого контекста)
     try {
-      window.addEventListener('storage', function (e) {
-        try {
-          if (!e) return;
-          if (String(e.key || '') !== LS_PLUGINS_BLACKLIST_KEY) return;
-          clearPluginsBlacklist('storage-event', log);
-        } catch (_) { }
-      });
+      if (!BL.Storage.Guards.__pluginsBlacklistStorageListenerInstalled) {
+        BL.Storage.Guards.__pluginsBlacklistStorageListenerInstalled = true;
+        window.addEventListener('storage', function (e) {
+          try {
+            if (!e) return;
+            if (String(e.key || '') !== LS_PLUGINS_BLACKLIST_KEY) return;
+            clearPluginsBlacklist('storage-event', log);
+          } catch (_) { }
+        });
+      }
     } catch (_) { }
 
     // 4) страховка (на ТВ иногда пишут мимо наших хуков)
@@ -115,4 +127,3 @@
   BL.Storage.Guards.clearPluginsBlacklist = clearPluginsBlacklist;
   BL.Storage.Guards.installPluginsBlacklistGuard = installPluginsBlacklistGuard;
 })();
-

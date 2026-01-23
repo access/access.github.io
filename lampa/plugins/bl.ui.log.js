@@ -7,8 +7,11 @@
   var DEFAULT_LOG_MODE = 1;
   var LOG_MODE = 0;
 
-  var TITLE_PREFIX = 'AutoPlugin log';
-  var CONSOLE_PREFIX = '[[AutoPlugin]]';
+  // Prefix is intentionally fixed for the whole project.
+  // Logs must always start with "[BlackLampa] ..." (console and popup).
+  var PREFIX = '[BlackLampa]';
+
+  var TITLE_PREFIX = 'BlackLampa log';
 
   var POPUP_MS = 20000;
   var MAX_LINES = 120;
@@ -23,14 +26,20 @@
   var TAG_STYLE = {
     'ERR': { color: '#ff4d4f' },
     'WRN': { color: '#ffa940' },
-    'OK ': { color: '#52c41a' },
+    'OK': { color: '#52c41a' },
     'INF': { color: '#40a9ff' },
     'DBG': { color: '#8c8c8c' }
   };
 
   var POPUP_FONT = '12px/1.35 Courier, "Courier New", monospace';
+  var SCROLL_TOL_PX = 8;
+  var scrollToBottomPending = false;
 
   function safe(fn) { try { return fn(); } catch (_) { return null; } }
+
+  function formatLine(tag, module, message, extra) {
+    return String(PREFIX) + ' ' + String(tag) + ' ' + String(module) + ': ' + String(message) + (extra ? (' | ' + String(extra)) : '');
+  }
 
   function clampMode(m) {
     if (m !== 0 && m !== 1 && m !== 2) return DEFAULT_LOG_MODE;
@@ -57,6 +66,8 @@
     if (!document || !document.body) return null;
 
     var el = document.createElement('div');
+    // Compatibility note:
+    // Keep legacy DOM ids so any external scripts/tools can still find the popup.
     el.id = '__autoplugin_popup';
     el.style.cssText = [
       'all:initial',
@@ -79,7 +90,10 @@
       'letter-spacing:0',
       '-webkit-font-smoothing:antialiased',
       'text-rendering:optimizeSpeed',
-      'pointer-events:none',
+      // Safety:
+      // - LOG_MODE=1: pointer-events none (never blocks UI clicks/focus)
+      // - LOG_MODE=2: pointer-events auto (allows manual scroll/select while debugging)
+      'pointer-events:' + (LOG_MODE === 2 ? 'auto' : 'none'),
       'white-space:pre-wrap',
       'word-break:break-word',
       'overflow:auto',
@@ -106,6 +120,17 @@
     popupEl = el;
     popupBodyEl = body;
     renderedCount = 0;
+
+    // Sticky-to-bottom state is derived from scroll position.
+    // We only respect manual scroll in LOG_MODE=2 (debug).
+    try {
+      el.addEventListener('scroll', function () {
+        try {
+          if (LOG_MODE !== 2) return;
+          // no-op: scrollTop is checked on every flush before auto-scroll decisions
+        } catch (_) { }
+      }, true);
+    } catch (_) { }
 
     safe(function () { schedulePopupFlush(); });
     return el;
@@ -143,6 +168,18 @@
     return line + '  ×' + String(count);
   }
 
+  function isAtBottom(el) {
+    try {
+      return (el.scrollTop + el.clientHeight) >= (el.scrollHeight - SCROLL_TOL_PX);
+    } catch (_) {
+      return true;
+    }
+  }
+
+  function scrollToBottom(el) {
+    try { el.scrollTop = el.scrollHeight; } catch (_) { }
+  }
+
   var flushScheduled = false;
   function schedulePopupFlush() {
     if (LOG_MODE === 0) return;
@@ -175,8 +212,7 @@
   }
 
   function fullRebuild() {
-    var el = ensurePopup();
-    if (!el || !popupBodyEl) return;
+    if (!popupEl || !popupBodyEl) return;
 
     clearNode(popupBodyEl);
     var frag = document.createDocumentFragment();
@@ -189,18 +225,25 @@
     var el = ensurePopup();
     if (!el || !popupBodyEl) return;
 
+    // Sticky-to-bottom:
+    // - if user is already at bottom => keep auto-scrolling
+    // - if user scrolled up (LOG_MODE=2) => never yank them down
+    // - if popup was just shown => scroll down once (if "sticky" is allowed)
+    var forceStick = (LOG_MODE !== 2);
+    var wasAtBottom = forceStick ? true : isAtBottom(el);
+    var shouldScroll = forceStick || scrollToBottomPending || wasAtBottom;
+
     if (renderedCount > popupQueue.length) renderedCount = 0;
 
     if (renderedCount === 0 && popupQueue.length > 0 && popupBodyEl.childNodes.length === 0) {
       fullRebuild();
-      return;
-    }
-
-    if (renderedCount < popupQueue.length) {
-      var frag = document.createDocumentFragment();
-      for (var i = renderedCount; i < popupQueue.length; i++) frag.appendChild(makeRow(popupQueue[i]));
-      popupBodyEl.appendChild(frag);
-      renderedCount = popupQueue.length;
+    } else {
+      if (renderedCount < popupQueue.length) {
+        var frag = document.createDocumentFragment();
+        for (var i = renderedCount; i < popupQueue.length; i++) frag.appendChild(makeRow(popupQueue[i]));
+        popupBodyEl.appendChild(frag);
+        renderedCount = popupQueue.length;
+      }
     }
 
     safe(function () {
@@ -208,6 +251,9 @@
       var lastQ = popupQueue[popupQueue.length - 1];
       if (lastDom && lastQ && lastDom.textContent !== lastQ.line) lastDom.textContent = lastQ.line;
     });
+
+    if (shouldScroll) scrollToBottom(el);
+    scrollToBottomPending = false;
   }
 
   function showPopupNow() {
@@ -216,6 +262,10 @@
     if (!el) return;
 
     el.style.display = 'block';
+    // If popup becomes visible, ensure the latest lines are visible.
+    // In LOG_MODE=2 we only auto-scroll if user was already at bottom.
+    scrollToBottomPending = (LOG_MODE !== 2) ? true : isAtBottom(el);
+
     if (popupTimer) clearTimeout(popupTimer);
     popupTimer = setTimeout(function () {
       if (popupEl) popupEl.style.display = 'none';
@@ -228,8 +278,7 @@
     if (!rateAllow()) {
       var now = Date.now();
       if ((now - rateBucketTs) < 1000 && rateBucketCount === (RATE_MAX_PER_SEC + 1)) {
-        var ts = new Date().toLocaleTimeString();
-        var l = '[' + ts + '] WRN AutoPlugin: log rate limited | max=' + String(RATE_MAX_PER_SEC) + '/s';
+        var l = formatLine('WRN', 'Log', 'rate limited', 'max=' + String(RATE_MAX_PER_SEC) + '/s');
         popupQueue.push({ line: l, tag: 'WRN', key: 'rate', ts: now, count: 1 });
         while (popupQueue.length > MAX_LINES) { popupQueue.shift(); renderedCount = 0; }
         schedulePopupFlush();
@@ -267,12 +316,9 @@
     showPopupNow();
   }
 
-  function consoleMirror(tag, source, message, extra) {
+  function consoleMirror(tag, line) {
     try {
       if (LOG_MODE === 0) return;
-
-      var pfx = String(CONSOLE_PREFIX) + ' ' + String(tag) + ' ' + String(source) + ': ' + String(message);
-      var ex = extra ? String(extra) : '';
 
       var fn = null;
       if (tag === 'ERR') fn = (console && console.error) ? console.error : null;
@@ -282,19 +328,16 @@
       else fn = (console && console.log) ? console.log : null;
 
       if (!fn) return;
-
-      if (ex) fn.call(console, pfx, ex);
-      else fn.call(console, pfx);
+      fn.call(console, String(line));
     } catch (_) { }
   }
 
   function showLine(tag, source, message, extra) {
     if (LOG_MODE === 0) return;
-    var ts = new Date().toLocaleTimeString();
-    var line = '[' + ts + '] ' + tag + ' ' + source + ': ' + message + (extra ? (' | ' + extra) : '');
+    var line = formatLine(tag, source, message, extra);
     var key = makeKey(tag, source, message, extra);
 
-    consoleMirror(tag, source, message, extra);
+    consoleMirror(tag, line);
     pushPopupLine(line, tag, key);
   }
 
@@ -321,11 +364,22 @@
 
     if (typeof opts.defaultMode === 'number') DEFAULT_LOG_MODE = opts.defaultMode;
     if (typeof opts.titlePrefix === 'string') TITLE_PREFIX = opts.titlePrefix;
-    if (typeof opts.consolePrefix === 'string') CONSOLE_PREFIX = opts.consolePrefix;
     if (typeof opts.popupMs === 'number') POPUP_MS = opts.popupMs;
     if (typeof opts.maxLines === 'number') MAX_LINES = opts.maxLines;
 
     LOG_MODE = getLogMode();
+
+    // If popup already exists, refresh a few dynamic bits (mode/title/pointer-events).
+    // This keeps behavior stable across multiple init() calls (PHASE 0 + later modules).
+    safe(function () {
+      if (!popupEl) return;
+      try { popupEl.style.pointerEvents = (LOG_MODE === 2 ? 'auto' : 'none'); } catch (_) { }
+      try {
+        var t = document.getElementById('__autoplugin_popup_title');
+        if (t) t.textContent = String(TITLE_PREFIX) + ' (mode=' + String(LOG_MODE) + ')';
+      } catch (_) { }
+    });
+
     installBodyObserverOnce();
     return LOG_MODE;
   };
@@ -337,7 +391,7 @@
 
   BL.Log.showError = function (source, message, extra) { showLine('ERR', source, message, extra); };
   BL.Log.showWarn = function (source, message, extra) { showLine('WRN', source, message, extra); };
-  BL.Log.showOk = function (source, message, extra) { showLine('OK ', source, message, extra); };
+  BL.Log.showOk = function (source, message, extra) { showLine('OK', source, message, extra); };
   BL.Log.showInfo = function (source, message, extra) { showLine('INF', source, message, extra); };
   BL.Log.showDbg = function (source, message, extra) { showLine('DBG', source, message, extra); };
 })();
