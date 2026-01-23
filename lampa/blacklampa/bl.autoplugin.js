@@ -75,8 +75,10 @@
         var DEFAULT_LOG_MODE = toInt(pickOption(cfgOpts, 'defaultLogMode', 1), 1);
         var AUTO_ENABLE_DISABLED = !!pickOption(cfgOpts, 'autoEnableDisabled', true);
         var INJECT_NEWLY_INSTALLED = !!pickOption(cfgOpts, 'injectNewlyInstalled', true);
-        var RELOAD_AFTER_FIRST_INSTALL = !!pickOption(cfgOpts, 'reloadAfterFirstInstall', true);
-        var RELOAD_DELAY_SEC = toInt(pickOption(cfgOpts, 'reloadDelaySec', 10), 10);
+        // Auto-reload disabled intentionally (BlackLampa policy).
+        // The page must never be reloaded automatically after installs/resets/reinit.
+        var RELOAD_AFTER_FIRST_INSTALL = false;
+        var RELOAD_DELAY_SEC = 0;
 
         safe(function () {
           if (BL.Log && BL.Log.init) {
@@ -183,7 +185,8 @@
         }
 
         // ============================================================================
-        // hard reset (localStorage + cookies + startpage) + reload
+        // hard reset (localStorage + cookies + startpage)
+        // Reload removed: user may reload manually if needed.
         // ============================================================================
         function clearAllCookies() {
           try {
@@ -209,7 +212,7 @@
           } catch (_) { }
         }
 
-        function resetLampaToDefaultsAndReload() {
+        function resetLampaToDefaults() {
           showWarn('reset', 'Lampa factory reset', 'clearing localStorage + cookies + startpage');
 
           // startpage (на случай если clear() не сработает)
@@ -226,33 +229,24 @@
           try { if (window.sessionStorage && sessionStorage.clear) sessionStorage.clear(); } catch (_) { }
           clearAllCookies();
 
-          // небольшой таймаут, чтобы успело примениться
-          setTimeout(function () {
-            try { location.reload(); } catch (_) { }
-          }, 250);
+          // Reload removed intentionally.
+          // Some environments may require a manual page reload to fully re-init after a wipe.
+          showInfo('reset', 'done', 'no auto reload');
         }
 
         // ============================================================================
-        // reload countdown after first install
+        // reload countdown after first install (disabled)
         // ============================================================================
         function scheduleReloadCountdown(sec, reason) {
           try {
-            if (!RELOAD_AFTER_FIRST_INSTALL) return;
-            var n = toInt(sec, 10);
-            if (n <= 0) { location.reload(); return; }
-
-            showInfo('reload', 'scheduled', String(reason || 'first install') + ' | in ' + String(n) + 's');
-
-            var t = setInterval(function () {
-              n--;
-              if (n > 0) {
-                showDbg('reload', 'countdown', String(n));
-                return;
-              }
-              clearInterval(t);
-              showOk('reload', 'now', 'location.reload()');
-              try { location.reload(); } catch (_) { }
-            }, 1000);
+            if (!RELOAD_AFTER_FIRST_INSTALL) {
+              // Auto-reload disabled intentionally (BlackLampa policy).
+              showInfo('AutoPlugin', 'reload disabled by policy', String(reason || ''));
+              return;
+            }
+            // Safety: even if RELOAD_AFTER_FIRST_INSTALL is toggled somewhere else,
+            // BlackLampa must never auto-reload the page.
+            showInfo('AutoPlugin', 'reload disabled by policy', String(reason || ''));
           } catch (_) { }
         }
 
@@ -325,7 +319,7 @@
               });
             }
 
-            // новый пункт: полный сброс Lampa + reload
+            // новый пункт: полный сброс Lampa (без автоматической перезагрузки страницы)
             var addedFactory = false;
 
             try {
@@ -339,11 +333,11 @@
                 },
                 field: {
                   name: 'Сброс Lampa',
-                  description: 'Полный сброс: localStorage + cookies + startpage, затем перезагрузка страницы.'
+                  description: 'Полный сброс: localStorage + cookies + startpage. Автоматическая перезагрузка отключена.'
                 },
                 onChange: function () {
                   try { if (Lampa.Noty && Lampa.Noty.show) Lampa.Noty.show('AutoPlugin: сброс Lampa...'); } catch (_) { }
-                  resetLampaToDefaultsAndReload();
+                  resetLampaToDefaults();
                 }
               });
               addedFactory = true;
@@ -363,11 +357,11 @@
                 },
                 field: {
                   name: 'Сброс Lampa',
-                  description: 'Выбери “Сбросить…”, чтобы очистить localStorage + cookies + startpage и перезагрузить.'
+                  description: 'Выбери “Сбросить…”, чтобы очистить localStorage + cookies + startpage. Автоперезагрузка отключена.'
                 },
                 onChange: function (value) {
                   if (String(value) === '1') {
-                    resetLampaToDefaultsAndReload();
+                    resetLampaToDefaults();
                   }
                 }
               });

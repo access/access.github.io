@@ -9,8 +9,8 @@
     "defaultLogMode": 1,
     "autoEnableDisabled": true,
     "injectNewlyInstalled": true,
-    "reloadAfterFirstInstall": true,
-    "reloadDelaySec": 10
+    "reloadAfterFirstInstall": false,
+    "reloadDelaySec": 0
   },
   "plugins": [
     { "url": "https://bywolf88.github.io/lampa-plugins/interface_mod.js", "tags": ["ui"] },
