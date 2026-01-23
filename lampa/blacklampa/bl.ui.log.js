@@ -13,18 +13,23 @@
 
   var TITLE_PREFIX = 'BlackLampa log';
 
-  var POPUP_MS = 20000;
-  var MAX_LINES = 120;
+	  var POPUP_MS = 20000;
+	  var MAX_LINES = 120;
 
-  var popupEl = null;
-  var popupTimer = null;
+	  var popupEl = null;
+	  var popupTimer = null;
+	  var lastShowTs = 0;
+	  var SHOW_THROTTLE_MS = 400;
 
-  var popupQueue = [];
-  var popupBodyEl = null;
-  var popupScrollEl = null;
-  var popupProgressFillEl = null;
-  var popupProgressSeq = 0;
-  var renderedCount = 0;
+	  var popupQueue = [];
+	  var popupBodyEl = null;
+	  var popupScrollEl = null;
+	  var popupHeaderEl = null;
+	  var popupHeaderHeight = 0;
+	  var popupResizeTimer = null;
+	  var popupProgressFillEl = null;
+	  var popupProgressSeq = 0;
+	  var renderedCount = 0;
 
   var TAG_STYLE = {
     'ERR': { color: '#ff4d4f' },
@@ -49,7 +54,7 @@
     return m;
   }
 
-  function getLogMode() {
+	  function getLogMode() {
     var q = BL.Core && BL.Core.getQueryParam ? BL.Core.getQueryParam('aplog') : null;
     if (q == null && BL.Core && BL.Core.getQueryParam) q = BL.Core.getQueryParam('apmode');
     if (q != null) return clampMode((BL.Core && BL.Core.toInt) ? BL.Core.toInt(q, DEFAULT_LOG_MODE) : DEFAULT_LOG_MODE);
@@ -60,13 +65,27 @@
       if (ls != null && ls !== '') return clampMode((BL.Core && BL.Core.toInt) ? BL.Core.toInt(ls, DEFAULT_LOG_MODE) : DEFAULT_LOG_MODE);
     } catch (_) { }
 
-    return clampMode(DEFAULT_LOG_MODE);
-  }
+	    return clampMode(DEFAULT_LOG_MODE);
+	  }
 
-  function ensurePopup() {
-    if (LOG_MODE === 0) return null;
-    if (popupEl) return popupEl;
-    if (!document || !document.body) return null;
+	  function updatePopupLayout() {
+	    try {
+	      if (!popupEl || !popupHeaderEl || !popupScrollEl) return;
+
+	      // When popup is hidden, offsetHeight may be 0; keep last known height.
+	      var h = popupHeaderEl.offsetHeight || 0;
+	      if (h > 0) popupHeaderHeight = h;
+	      else h = popupHeaderHeight || 0;
+
+	      // +2px for progressbar height.
+	      popupScrollEl.style.top = String(h + 2) + 'px';
+	    } catch (_) { }
+	  }
+
+	  function ensurePopup() {
+	    if (LOG_MODE === 0) return null;
+	    if (popupEl) return popupEl;
+	    if (!document || !document.body) return null;
 
     var el = document.createElement('div');
     // Compatibility note:
@@ -92,21 +111,21 @@
       'font-variant-ligatures:none',
       'letter-spacing:0',
       '-webkit-font-smoothing:antialiased',
-      'text-rendering:optimizeSpeed',
-      // Safety:
-      // - LOG_MODE=1: pointer-events none (never blocks UI clicks/focus)
-      // - LOG_MODE=2: pointer-events auto (allows manual scroll/select while debugging)
-      'pointer-events:' + (LOG_MODE === 2 ? 'auto' : 'none'),
-      'white-space:pre-wrap',
-      'word-break:break-word',
-      // IMPORTANT:
-      // The popup frame must never scroll, otherwise the progressbar/header "moves away".
-      // Scroll is isolated to the body wrapper.
-      'overflow:hidden',
-      'display:flex',
-      'flex-direction:column',
-      'box-shadow:0 10px 30px rgba(0,0,0,0.25)'
-    ].join(';');
+	      'text-rendering:optimizeSpeed',
+	      // Safety: popup must never capture input, focus or scrolling (TV/PC/mobile).
+	      'pointer-events:none',
+	      'user-select:none',
+	      '-webkit-user-select:none',
+	      'touch-action:none',
+	      'white-space:pre-wrap',
+	      'word-break:break-word',
+	      // IMPORTANT:
+	      // The popup frame must never scroll, otherwise the progressbar/header "moves away".
+	      // Scroll is isolated to the body wrapper.
+	      'overflow:hidden',
+	      'display:block',
+	      'box-shadow:0 10px 30px rgba(0,0,0,0.25)'
+	    ].join(';');
 
     // Progress bar:
     // Shows remaining time before popup auto-hide. It is visual-only and must not affect layout or focus.
@@ -138,14 +157,16 @@
     ].join(';');
     progress.appendChild(progressFill);
 
-    var headerWrap = document.createElement('div');
-    headerWrap.style.cssText = [
-      'position:relative',
-      'z-index:1',
-      'box-sizing:border-box',
-      'padding:10px 12px 6px 12px',
-      'pointer-events:none'
-    ].join(';');
+	    var headerWrap = document.createElement('div');
+	    headerWrap.style.cssText = [
+	      'position:relative',
+	      'z-index:1',
+	      'box-sizing:border-box',
+	      'padding:10px 12px 6px 12px',
+	      'pointer-events:none',
+	      'user-select:none',
+	      '-webkit-user-select:none'
+	    ].join(';');
 
     var title = document.createElement('div');
     title.id = '__autoplugin_popup_title';
@@ -157,20 +178,22 @@
     ].join(';');
     title.textContent = String(TITLE_PREFIX) + ' (mode=' + String(LOG_MODE) + ')';
 
-    var bodyWrap = document.createElement('div');
-    bodyWrap.style.cssText = [
-      'position:relative',
-      'z-index:1',
-      'box-sizing:border-box',
-      'padding:0 12px 12px 12px',
-      'overflow:auto',
-      '-webkit-overflow-scrolling:touch',
-      // Allow scrolling only in LOG_MODE=2 (debug). In mode=1 popup must never block UI.
-      'pointer-events:' + (LOG_MODE === 2 ? 'auto' : 'none'),
-      // Flexbox: allow bodyWrap to shrink and become scrollable
-      'flex:1 1 auto',
-      'min-height:0'
-    ].join(';');
+	    var bodyWrap = document.createElement('div');
+	    bodyWrap.style.cssText = [
+	      'position:absolute',
+	      'z-index:1',
+	      'box-sizing:border-box',
+	      'left:12px',
+	      'right:12px',
+	      'bottom:12px',
+	      'top:0',
+	      'overflow:auto',
+	      '-webkit-overflow-scrolling:touch',
+	      // Visual-only popup: never accept manual scroll/touch/mouse events.
+	      'pointer-events:none',
+	      'user-select:none',
+	      '-webkit-user-select:none'
+	    ].join(';');
 
     var body = document.createElement('div');
     body.id = '__autoplugin_popup_body';
@@ -182,26 +205,28 @@
     el.appendChild(bodyWrap);
     document.body.appendChild(el);
 
-    popupEl = el;
-    popupBodyEl = body;
-    popupScrollEl = bodyWrap;
-    popupProgressFillEl = progressFill;
-    renderedCount = 0;
+	    popupEl = el;
+	    popupBodyEl = body;
+	    popupScrollEl = bodyWrap;
+	    popupHeaderEl = headerWrap;
+	    popupHeaderHeight = headerWrap.offsetHeight || popupHeaderHeight;
+	    popupProgressFillEl = progressFill;
+	    renderedCount = 0;
 
-    // Sticky-to-bottom state is derived from scroll position.
-    // We only respect manual scroll in LOG_MODE=2 (debug).
-    try {
-      bodyWrap.addEventListener('scroll', function () {
-        try {
-          if (LOG_MODE !== 2) return;
-          // no-op: scrollTop is checked on every flush before auto-scroll decisions
-        } catch (_) { }
-      }, true);
-    } catch (_) { }
+	    updatePopupLayout();
+	    try {
+	      window.addEventListener('resize', function () {
+	        try {
+	          if (!popupEl) return;
+	          if (popupResizeTimer) clearTimeout(popupResizeTimer);
+	          popupResizeTimer = setTimeout(updatePopupLayout, 100);
+	        } catch (_) { }
+	      }, true);
+	    } catch (_) { }
 
-    safe(function () { schedulePopupFlush(); });
-    return el;
-  }
+	    safe(function () { schedulePopupFlush(); });
+	    return el;
+	  }
 
   function clearNode(node) {
     try { while (node && node.firstChild) node.removeChild(node.firstChild); } catch (_) { }
@@ -288,18 +313,17 @@
     renderedCount = popupQueue.length;
   }
 
-  function flushPopupToDom() {
-    var el = ensurePopup();
-    var scrollEl = popupScrollEl;
-    if (!el || !popupBodyEl || !scrollEl) return;
+	  function flushPopupToDom() {
+	    var el = ensurePopup();
+	    var scrollEl = popupScrollEl;
+	    if (!el || !popupBodyEl || !scrollEl) return;
 
-    // Sticky-to-bottom:
-    // - if user is already at bottom => keep auto-scrolling
-    // - if user scrolled up (LOG_MODE=2) => never yank them down
-    // - if popup was just shown => scroll down once (if "sticky" is allowed)
-    var forceStick = (LOG_MODE !== 2);
-    var wasAtBottom = forceStick ? true : isAtBottom(scrollEl);
-    var shouldScroll = forceStick || scrollToBottomPending || wasAtBottom;
+	    // Sticky-to-bottom:
+	    // - if already at bottom => keep auto-scrolling
+	    // - if user could scroll up (legacy debug) => do not yank (but popup is non-interactive now)
+	    // - if popup was just shown => scroll down once
+	    var wasAtBottom = isAtBottom(scrollEl);
+	    var shouldScroll = scrollToBottomPending || wasAtBottom;
 
     if (renderedCount > popupQueue.length) renderedCount = 0;
 
@@ -355,23 +379,32 @@
     } else setTimeout(start, 0);
   }
 
-  function showPopupNow() {
-    if (LOG_MODE === 0) return;
-    var el = ensurePopup();
-    var scrollEl = popupScrollEl;
-    if (!el || !scrollEl) return;
+	  function showPopupNow() {
+	    if (LOG_MODE === 0) return;
+	    var el = ensurePopup();
+	    var scrollEl = popupScrollEl;
+	    if (!el || !scrollEl) return;
 
-    el.style.display = 'block';
-    restartPopupProgressBar();
-    // If popup becomes visible, ensure the latest lines are visible.
-    // In LOG_MODE=2 we only auto-scroll if user was already at bottom.
-    scrollToBottomPending = (LOG_MODE !== 2) ? true : isAtBottom(scrollEl);
+	    var now = Date.now();
+	    var wasVisible = (el.style.display !== 'none');
 
-    if (popupTimer) clearTimeout(popupTimer);
-    popupTimer = setTimeout(function () {
-      if (popupEl) popupEl.style.display = 'none';
-    }, POPUP_MS);
-  }
+	    el.style.display = 'block';
+	    updatePopupLayout();
+	    // Popup is visual-only (no manual scroll), so always keep last lines visible.
+	    scrollToBottomPending = true;
+
+	    // Prevent extending the auto-hide timer too frequently on log bursts.
+	    if (wasVisible && lastShowTs && (now - lastShowTs) < SHOW_THROTTLE_MS) return;
+	    lastShowTs = now;
+
+	    restartPopupProgressBar();
+
+	    if (popupTimer) clearTimeout(popupTimer);
+	    popupTimer = setTimeout(function () {
+	      popupTimer = null;
+	      if (popupEl) popupEl.style.display = 'none';
+	    }, POPUP_MS);
+	  }
 
   function pushPopupLine(line, tag, key) {
     if (LOG_MODE === 0) return;
@@ -460,7 +493,7 @@
     });
   }
 
-  BL.Log.init = function (opts) {
+	  BL.Log.init = function (opts) {
     opts = opts || {};
 
     if (typeof opts.defaultMode === 'number') DEFAULT_LOG_MODE = opts.defaultMode;
@@ -470,17 +503,15 @@
 
     LOG_MODE = getLogMode();
 
-    // If popup already exists, refresh a few dynamic bits (mode/title/pointer-events).
-    // This keeps behavior stable across multiple init() calls (PHASE 0 + later modules).
-    safe(function () {
-      if (!popupEl) return;
-      try { popupEl.style.pointerEvents = (LOG_MODE === 2 ? 'auto' : 'none'); } catch (_) { }
-      try { if (popupScrollEl) popupScrollEl.style.pointerEvents = (LOG_MODE === 2 ? 'auto' : 'none'); } catch (_) { }
-      try {
-        var t = document.getElementById('__autoplugin_popup_title');
-        if (t) t.textContent = String(TITLE_PREFIX) + ' (mode=' + String(LOG_MODE) + ')';
-      } catch (_) { }
-    });
+	    // If popup already exists, refresh a few dynamic bits (mode/title/pointer-events).
+	    // This keeps behavior stable across multiple init() calls (PHASE 0 + later modules).
+	    safe(function () {
+	      if (!popupEl) return;
+	      try {
+	        var t = document.getElementById('__autoplugin_popup_title');
+	        if (t) t.textContent = String(TITLE_PREFIX) + ' (mode=' + String(LOG_MODE) + ')';
+	      } catch (_) { }
+	    });
 
     installBodyObserverOnce();
     return LOG_MODE;
