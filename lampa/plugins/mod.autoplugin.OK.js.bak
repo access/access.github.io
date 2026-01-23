@@ -501,53 +501,11 @@
                 showWarn(where, 'BLOCKED (' + label + ')', u);
             }
 
-            // [ADDED] CUB blacklist override (return empty array)
-            function isCubBlacklistUrl(u) {
-                try {
-                    if (!u) return false;
-                    var url = new URL(String(u), location.href);
-                    var host = String(url.hostname || '').toLowerCase();
-                    var path = String(url.pathname || '').toLowerCase();
-                    return (host === 'cub.rip') && (path === '/api/plugins/blacklist');
-                } catch (_) {
-                    return false;
-                }
-            }
-
-            // [ADDED] CUB blacklist mock response builders
-            function makeJsonEmptyResponseFetch() {
-                try {
-                    if (typeof Response === 'function') {
-                        return new Response('[]', {
-                            status: 200,
-                            headers: { 'Content-Type': 'application/json; charset=utf-8' }
-                        });
-                    }
-                } catch (_) { }
-                // fallback minimal "fetch-like" response
-                return {
-                    ok: true,
-                    status: 200,
-                    statusText: 'OK',
-                    headers: { get: function () { return 'application/json; charset=utf-8'; } },
-                    text: function () { return Promise.resolve('[]'); },
-                    json: function () { return Promise.resolve([]); },
-                    clone: function () { return this; }
-                };
-            }
-
             function patchBlockNetwork() {
                 if (window.fetch) {
                     var origFetch = window.fetch.bind(window);
                     window.fetch = function (input, init) {
                         var u = (typeof input === 'string') ? input : (input && input.url) ? input.url : '';
-
-                        // [ADDED] override CUB blacklist to empty list
-                        if (isCubBlacklistUrl(u)) {
-                            try { showOk('CUB', 'blacklist overridden', 'fetch | ' + String(u)); } catch (_) { }
-                            return Promise.resolve(makeJsonEmptyResponseFetch());
-                        }
-
                         var why = isBlockedUrl(u);
                         if (why) {
                             logBlocked(u, 'fetch', why);
@@ -564,44 +522,11 @@
 
                     XHR.prototype.open = function (method, url) {
                         this.__ap_url = url;
-
-                        // [ADDED] override CUB blacklist to empty list (XHR)
-                        this.__ap_mock_cub_blacklist = isCubBlacklistUrl(url);
-
                         this.__ap_block_reason = isBlockedUrl(url);
                         return origOpen.apply(this, arguments);
                     };
 
                     XHR.prototype.send = function () {
-                        // [ADDED] mocked response for CUB blacklist
-                        if (this.__ap_mock_cub_blacklist) {
-                            var xhr0 = this;
-                            var u0 = this.__ap_url;
-
-                            setTimeout(function () {
-                                try {
-                                    // define properties (часто readonly, но на инстансе обычно можно переопределить)
-                                    try { Object.defineProperty(xhr0, 'readyState', { value: 4, configurable: true }); } catch (_) { }
-                                    try { Object.defineProperty(xhr0, 'status', { value: 200, configurable: true }); } catch (_) { }
-                                    try { Object.defineProperty(xhr0, 'statusText', { value: 'OK', configurable: true }); } catch (_) { }
-                                    try { Object.defineProperty(xhr0, 'responseType', { value: '', configurable: true }); } catch (_) { }
-
-                                    try { Object.defineProperty(xhr0, 'responseText', { value: '[]', configurable: true }); } catch (_) { }
-                                    try { Object.defineProperty(xhr0, 'response', { value: '[]', configurable: true }); } catch (_) { }
-                                    try { Object.defineProperty(xhr0, 'responseURL', { value: String(u0 || ''), configurable: true }); } catch (_) { }
-
-                                    try { showOk('CUB', 'blacklist overridden', 'XHR | ' + String(u0)); } catch (_) { }
-
-                                    // event sequence
-                                    try { if (xhr0.onreadystatechange) xhr0.onreadystatechange(); } catch (_) { }
-                                    try { if (xhr0.onload) xhr0.onload(); } catch (_) { }
-                                    try { if (xhr0.dispatchEvent) xhr0.dispatchEvent(new Event('readystatechange')); } catch (_) { }
-                                    try { if (xhr0.dispatchEvent) xhr0.dispatchEvent(new Event('load')); } catch (_) { }
-                                } catch (_) { }
-                            }, 0);
-                            return;
-                        }
-
                         if (this.__ap_block_reason) {
                             var u = this.__ap_url;
                             var why = this.__ap_block_reason;
@@ -644,7 +569,7 @@
                     window.WebSocket.prototype = OrigWS.prototype;
                 }
 
-                showOk('policy', 'Network block installed', 'Yandex + Google/YouTube + Statistics + BWA:CORS(/cors/check) + CUB:blacklist([])');
+                showOk('policy', 'Network block installed', 'Yandex + Google/YouTube + Statistics + BWA:CORS(/cors/check)');
             }
 
             // ============================================================================
@@ -1140,7 +1065,7 @@
 
                         showOk('AutoPlugin', 'done', 'total=' + String(PLUGINS.length));
 
-                        // [ADDED] auto reload после первой установки (как в reload.js: location.reload())
+                        // [ADDED] auto reload после первой установки (как в reload.js: location.reload()) :contentReference[oaicite:0]{index=0}
                         scheduleReloadCountdown(RELOAD_DELAY_SEC, 'first install completed');
 
                         finalizeLoggingAfterDone();
