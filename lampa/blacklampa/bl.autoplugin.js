@@ -271,7 +271,7 @@
           setInstalledPlugins([]);
 
           showOk('Settings', 'all Lampa plugins removed', '');
-          try { if (Lampa.Noty && Lampa.Noty.show) Lampa.Noty.show('Плагины удалены. Для полного применения может потребоваться перезапуск приложения.'); } catch (_) { }
+          try { if (Lampa.Noty && Lampa.Noty.show) Lampa.Noty.show('[[BlackLampa]] Плагины удалены. Для полного применения может потребоваться перезапуск приложения.'); } catch (_) { }
 
           return plugins.length;
         }
@@ -297,20 +297,24 @@
 
           if (removed) setInstalledPlugins(kept);
 
-          // Clear AutoPlugin one-time flags so installer can run again if needed.
-          resetFirstInstallFlags();
+          // WHY: do NOT reset first-install flags here.
+          // Deleting managed plugins must not trigger unexpected re-install on next start.
+          // Use "Переинициализация" if you want AutoPlugin to run again.
 
           showOk('AutoPlugin', 'managed plugins removed', '');
-          try { if (Lampa.Noty && Lampa.Noty.show) Lampa.Noty.show('Плагины AutoPlugin удалены. Для полного применения может потребоваться перезапуск приложения.'); } catch (_) { }
+          try { if (Lampa.Noty && Lampa.Noty.show) Lampa.Noty.show('[[BlackLampa]] Плагины AutoPlugin удалены. Для полного применения может потребоваться перезапуск приложения.'); } catch (_) { }
 
           return removed;
         }
 
         function resetLampa() {
-          // Existing "Сброс Lampa" must remove all plugins via official API.
+          // Existing "Сброс Lampa до заводских" must:
+          // - remove ALL plugins via official API
+          // - reset AutoPlugin first-install flags so the next start behaves like fresh install
           // Reload removed: user may restart the app manually if needed.
-          removeAllPluginsLampa();
+          // WHY: a factory reset must never keep "first install completed" state.
           resetFirstInstallFlags();
+          removeAllPluginsLampa();
 
           // Also reset common startpage keys (via storage API).
           try { lsDel('start_page'); } catch (_) { }
@@ -393,13 +397,13 @@
             var busy = false;
             function runOnce(title, text, fn) {
               if (busy) {
-                try { if (Lampa.Noty && Lampa.Noty.show) Lampa.Noty.show('Операция уже выполняется...'); } catch (_) { }
+                try { if (Lampa.Noty && Lampa.Noty.show) Lampa.Noty.show('[[BlackLampa]] Операция уже выполняется...'); } catch (_) { }
                 return;
               }
               confirmAction(title, text, function () {
                 if (busy) return;
                 busy = true;
-                try { if (Lampa.Noty && Lampa.Noty.show) Lampa.Noty.show('Выполняется...'); } catch (_) { }
+                try { if (Lampa.Noty && Lampa.Noty.show) Lampa.Noty.show('[[BlackLampa]] Выполняется...'); } catch (_) { }
                 setTimeout(function () {
                   try { fn && fn(); } catch (e) { showError('Settings', 'action failed', fmtErr(e)); }
                   busy = false;
@@ -423,6 +427,7 @@
                   description: 'Удаляет ВСЕ установленные плагины через Lampa.Storage (как в addon.js). Автоперезагрузка отключена.'
                 },
                 onChange: function () {
+                  // WHY: do NOT reset first-install flags here (avoid unexpected re-install on next start).
                   runOnce('Удалить все плагины Lampa', 'Удалить ВСЕ плагины Lampa?\n\nАвтоперезагрузка отключена. При необходимости перезапустите приложение вручную.', function () {
                     removeAllPluginsLampa();
                   });
@@ -444,6 +449,7 @@
                   description: 'Удаляет только плагины из bl.autoplugin.json (plugins + disabled). Ручные плагины не трогает.'
                 },
                 onChange: function () {
+                  // WHY: do NOT reset first-install flags here (avoid unwanted re-install).
                   runOnce('Удалить плагины AutoPlugin Installer', 'Удалить плагины, которыми управляет AutoPlugin Installer?\n\nАвтоперезагрузка отключена. При необходимости перезапустите приложение вручную.', function () {
                     removeManagedPluginsLampa();
                   });
@@ -467,8 +473,9 @@
                   description: 'Сбрасывает наши флаги первой установки (через Lampa.Storage). После этого при следующем запуске снова пойдёт установка из массива.'
                 },
                 onChange: function () {
+                  // WHY: user explicitly requests AutoPlugin to run again on next start.
                   resetFirstInstallFlags();
-                  try { if (Lampa.Noty && Lampa.Noty.show) Lampa.Noty.show('AutoPlugin: флаг сброшен'); } catch (_) { }
+                  try { if (Lampa.Noty && Lampa.Noty.show) Lampa.Noty.show('[[BlackLampa]] AutoPlugin: флаг сброшен'); } catch (_) { }
                   refreshInstallerSettingsUi();
                 }
               });
@@ -493,8 +500,9 @@
                 },
                 onChange: function (value) {
                   if (String(value) === '1') {
+                    // WHY: user explicitly requests AutoPlugin to run again on next start.
                     resetFirstInstallFlags();
-                    try { if (Lampa.Noty && Lampa.Noty.show) Lampa.Noty.show('AutoPlugin: флаг сброшен'); } catch (_) { }
+                    try { if (Lampa.Noty && Lampa.Noty.show) Lampa.Noty.show('[[BlackLampa]] AutoPlugin: флаг сброшен'); } catch (_) { }
                     refreshInstallerSettingsUi();
                   }
                 }
@@ -510,15 +518,16 @@
                 param: {
                   name: 'ap_factory_reset',
                   type: 'button',
-                  text: 'Сброс Lampa',
-                  title: 'Сброс Lampa'
+                  text: 'Сброс Lampa до заводских',
+                  title: 'Сброс Lampa до заводских'
                 },
                 field: {
                   name: 'Сброс Lampa',
                   description: 'Удаляет ВСЕ плагины через Lampa.Storage + сбрасывает AutoPlugin-флаги + стартовую страницу. Автоперезагрузка отключена.'
                 },
                 onChange: function () {
-                  runOnce('Сброс Lampa', 'Сбросить Lampa?\n\nЭто удалит ВСЕ плагины через Lampa.Storage и сбросит настройки стартовой страницы.\n\nАвтоперезагрузка отключена. При необходимости перезапустите приложение вручную.', function () {
+                  // WHY: factory reset must reset first-install flags to avoid "skip" after restart.
+                  runOnce('Сброс Lampa до заводских', 'Сбросить Lampa до заводских?\n\nЭто удалит ВСЕ плагины через Lampa.Storage и сбросит настройки стартовой страницы.\n\nАвтоперезагрузка отключена. При необходимости перезапустите приложение вручную.', function () {
                     resetLampa();
                   });
                 }
@@ -534,7 +543,7 @@
                   type: 'select',
                   values: {
                     '0': '—',
-                    '1': 'Сброс Lampa'
+                    '1': 'Сброс Lampa до заводских'
                   },
                   default: '0'
                 },
@@ -544,7 +553,8 @@
                 },
                 onChange: function (value) {
                   if (String(value) === '1') {
-                    runOnce('Сброс Lampa', 'Сбросить Lampa?\n\nЭто удалит ВСЕ плагины через Lampa.Storage.\n\nАвтоперезагрузка отключена. При необходимости перезапустите приложение вручную.', function () {
+                    // WHY: factory reset must reset first-install flags to avoid "skip" after restart.
+                    runOnce('Сброс Lampa до заводских', 'Сбросить Lampa до заводских?\n\nЭто удалит ВСЕ плагины через Lampa.Storage.\n\nАвтоперезагрузка отключена. При необходимости перезапустите приложение вручную.', function () {
                       resetLampa();
                     });
                   }

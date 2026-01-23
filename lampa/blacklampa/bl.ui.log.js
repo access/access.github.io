@@ -21,6 +21,8 @@
 
   var popupQueue = [];
   var popupBodyEl = null;
+  var popupProgressFillEl = null;
+  var popupProgressSeq = 0;
   var renderedCount = 0;
 
   var TAG_STYLE = {
@@ -100,6 +102,35 @@
       'box-shadow:0 10px 30px rgba(0,0,0,0.25)'
     ].join(';');
 
+    // Progress bar:
+    // Shows remaining time before popup auto-hide. It is visual-only and must not affect layout or focus.
+    var progress = document.createElement('div');
+    progress.id = '__autoplugin_popup_progress';
+    progress.style.cssText = [
+      'position:absolute',
+      'top:0',
+      'left:0',
+      'right:0',
+      'height:2px',
+      'background:rgba(255,255,255,0.15)',
+      'border-radius:12px 12px 0 0',
+      'overflow:hidden',
+      'pointer-events:none'
+    ].join(';');
+
+    var progressFill = document.createElement('div');
+    progressFill.id = '__autoplugin_popup_progress_fill';
+    progressFill.style.cssText = [
+      'height:100%',
+      'width:100%',
+      'background:#40a9ff',
+      'transform-origin:left center',
+      'transform:scaleX(1)',
+      'will-change:transform',
+      'pointer-events:none'
+    ].join(';');
+    progress.appendChild(progressFill);
+
     var title = document.createElement('div');
     title.id = '__autoplugin_popup_title';
     title.style.cssText = [
@@ -113,12 +144,15 @@
     var body = document.createElement('div');
     body.id = '__autoplugin_popup_body';
 
+    // Progress bar must be inside popup element (for z-index/clip), but above title/content.
+    el.appendChild(progress);
     el.appendChild(title);
     el.appendChild(body);
     document.body.appendChild(el);
 
     popupEl = el;
     popupBodyEl = body;
+    popupProgressFillEl = progressFill;
     renderedCount = 0;
 
     // Sticky-to-bottom state is derived from scroll position.
@@ -256,12 +290,44 @@
     scrollToBottomPending = false;
   }
 
+  function restartPopupProgressBar() {
+    if (LOG_MODE === 0) return;
+    if (!popupProgressFillEl) return;
+
+    popupProgressSeq++;
+    var seq = popupProgressSeq;
+
+    safe(function () {
+      popupProgressFillEl.style.transition = 'none';
+      popupProgressFillEl.style.transform = 'scaleX(1)';
+      // Force reflow so the reset state is applied before starting the transition.
+      void popupProgressFillEl.offsetWidth;
+    });
+
+    function start() {
+      if (seq !== popupProgressSeq) return;
+      safe(function () {
+        popupProgressFillEl.style.transition = 'transform ' + String(POPUP_MS) + 'ms linear';
+        popupProgressFillEl.style.transform = 'scaleX(0)';
+      });
+    }
+
+    if (!POPUP_MS || POPUP_MS <= 0) return start();
+
+    if (window.requestAnimationFrame) {
+      window.requestAnimationFrame(function () {
+        window.requestAnimationFrame(start);
+      });
+    } else setTimeout(start, 0);
+  }
+
   function showPopupNow() {
     if (LOG_MODE === 0) return;
     var el = ensurePopup();
     if (!el) return;
 
     el.style.display = 'block';
+    restartPopupProgressBar();
     // If popup becomes visible, ensure the latest lines are visible.
     // In LOG_MODE=2 we only auto-scroll if user was already at bottom.
     scrollToBottomPending = (LOG_MODE !== 2) ? true : isAtBottom(el);
