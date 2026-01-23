@@ -28,23 +28,34 @@
         var jsonUrl = '';
         try {
             var base = ctx && ctx.base ? String(ctx.base) : '';
-            jsonUrl = String(new URL('modification-preload.json', base || location.href).href);
+            jsonUrl = String(new URL('bl.preload.json', base || location.href).href);
         } catch (_) {
-            jsonUrl = 'modification-preload.json';
+            jsonUrl = 'bl.preload.json';
+        }
+
+        function normalizeRoot(obj) {
+            try {
+                if (!obj || typeof obj !== 'object' || Array.isArray(obj)) return null;
+                if (obj.storage && typeof obj.storage === 'object' && !Array.isArray(obj.storage)) return obj.storage;
+                return obj;
+            } catch (_) {
+                return null;
+            }
         }
 
         function applyJson(obj) {
             try {
-                if (!obj || typeof obj !== 'object' || Array.isArray(obj)) {
+                var map = normalizeRoot(obj);
+                if (!map) {
                     // если вдруг корень не map — просто игнор/лог
                     try { console.log('[MSX][preload] root is not object map'); } catch (_) { }
                     return;
                 }
 
-                var keys = Object.keys(obj);
+                var keys = Object.keys(map);
                 for (var i = 0; i < keys.length; i++) {
                     var k = keys[i];
-                    var v = obj[k];
+                    var v = map[k];
 
                     if (typeof v === 'string') {
                         // важно: НЕ JSON.stringify, иначе получишь "\"false\"" вместо "false"
