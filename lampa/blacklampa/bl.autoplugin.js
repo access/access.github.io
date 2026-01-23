@@ -85,7 +85,7 @@
             BL.Log.init({
               defaultMode: DEFAULT_LOG_MODE,
               titlePrefix: 'BlackLampa log',
-              popupMs: 10000,
+              popupMs: 5000,
               maxLines: 120
             });
           }
