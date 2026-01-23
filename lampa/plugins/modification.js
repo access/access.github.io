@@ -333,13 +333,9 @@
       '<div id="msx_hash_text" style="margin-bottom:8px;"></div>' +
 
       '<div id="msx_hash_copy" style="' +
-      'display:inline-block;' +
-      'padding:8px 14px;' +
-      'border:1px solid rgba(255,255,255,.25);' +
-      'border-radius:10px;' +
-      'cursor:pointer;' +
-      'opacity:.85;' +
-      'user-select:none;' +
+      'flex:1;display:flex;align-items:center;justify-content:center;' +
+      'padding:12px 14px;border:1px solid rgba(255,255,255,.22);' +
+      'border-radius:12px;user-select:none;' +
       '">' +
       '📋 Copy' +
       '</div>' +
