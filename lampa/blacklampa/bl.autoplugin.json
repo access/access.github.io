@@ -2,7 +2,7 @@
   "meta": {
     "name": "BlackLampa AutoPlugin",
     "format": 1,
-    "source": "mod.autoplugin.js",
+    "source": "legacy-autoplugin",
     "generatedAt": 0
   },
   "options": {

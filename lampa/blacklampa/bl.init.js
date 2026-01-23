@@ -208,7 +208,9 @@
 
           log('INF', 'Auth', 'start', 'waiting for password');
 
-          BL.Auth.start().then(function () {
+          // Auth allow-list is read from a fixed path inside BlackLampa.
+          // Any "user" activity (PHASE 1) must remain strictly gated by successful auth.
+          BL.Auth.start({ authJson: '/lampa/blacklampa/bl.auth.json' }).then(function () {
             log('OK', 'Auth', 'ok', 'unlocked');
             return BL.Init.phase1();
           }).then(function () {

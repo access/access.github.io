@@ -8,7 +8,9 @@
   // CONFIG
   // =========================
   var AUTH_KEY = 'msx_fake_auth_ok_v2';
-  var AUTH_JSON = 'mod.auth.json';
+  // `bl.auth.json` is the only source of BlackLampa auth configuration.
+  // Intentionally fixed to a single file name/path to keep the subsystem self-contained.
+  var AUTH_JSON = '/lampa/blacklampa/bl.auth.json';
 
   // =========================
   // STORAGE (Lampa)
@@ -474,4 +476,3 @@
   BL.Auth.getKey = function () { return AUTH_KEY; };
   BL.Auth.getAuthed = getAuthed;
 })();
-

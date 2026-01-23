@@ -9,7 +9,7 @@
 ## Файлы
 
 - `lampa/blacklampa/bl.init.js` — единый orchestrator (`BL.Init.phase0/phase1/start`).
-- `lampa/blacklampa/bl.auth.js` — авторизация (UI без переписывания) + чтение `lampa/blacklampa/mod.auth.json`.
+- `lampa/blacklampa/bl.auth.js` — авторизация (UI без переписывания) + чтение `lampa/blacklampa/bl.auth.json`.
 - `lampa/blacklampa/bl.preload.js` — preload `localStorage` из `lampa/blacklampa/bl.preload.json` (только post-auth).
 - `lampa/blacklampa/bl.autoplugin.js` — install/enable/inject + Settings UI; читает `lampa/blacklampa/bl.autoplugin.json` (только post-auth).
 - `lampa/blacklampa/bl.storage.guards.js` — guard `plugins_blacklist` (wipe/guard/watchdog).
@@ -21,7 +21,7 @@
 
 - `lampa/blacklampa/bl.autoplugin.json` — `plugins[]` и `disabled[]` (lossless: все URL из закомментированных строк исходного списка).
 - `lampa/blacklampa/bl.preload.json` — `{ meta, storage }`, где `storage` — карта ключей/значений для preload в `localStorage`.
-- `lampa/blacklampa/mod.auth.json` — список допустимых хэшей пароля.
+- `lampa/blacklampa/bl.auth.json` — список допустимых хэшей пароля.
 
 ## Plugins (заглушка)
 
