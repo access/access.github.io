@@ -28,6 +28,7 @@
 	  var popupHeaderHeight = 0;
 	  var popupResizeTimer = null;
 	  var popupProgressFillEl = null;
+	  var popupProgressFillBottomEl = null;
 	  var popupProgressSeq = 0;
 	  var renderedCount = 0;
 
@@ -144,23 +145,52 @@
       'pointer-events:none'
     ].join(';');
 
-    var progressFill = document.createElement('div');
-    progressFill.id = '__autoplugin_popup_progress_fill';
-    progressFill.style.cssText = [
-      'height:100%',
-      'width:100%',
-      'background:#40a9ff',
-      'transform-origin:left center',
-      'transform:scaleX(1)',
-      'will-change:transform',
-      'pointer-events:none'
-    ].join(';');
-    progress.appendChild(progressFill);
+	    var progressFill = document.createElement('div');
+	    progressFill.id = '__autoplugin_popup_progress_fill';
+	    progressFill.style.cssText = [
+	      'height:100%',
+	      'width:100%',
+	      'background:#40a9ff',
+	      'transform-origin:left center',
+	      'transform:scaleX(1)',
+	      'will-change:transform',
+	      'pointer-events:none'
+	    ].join(';');
+	    progress.appendChild(progressFill);
 
-	    var headerWrap = document.createElement('div');
-	    headerWrap.style.cssText = [
-	      'position:relative',
-	      'z-index:1',
+	    // Bottom progress bar (mirrors the top one).
+	    var progressBottom = document.createElement('div');
+	    progressBottom.id = '__autoplugin_popup_progress_bottom';
+	    progressBottom.style.cssText = [
+	      'position:absolute',
+	      'left:0',
+	      'right:0',
+	      'bottom:0',
+	      'z-index:3',
+	      'height:2px',
+	      'background:rgba(255,255,255,0.15)',
+	      'border-radius:0 0 12px 12px',
+	      'overflow:hidden',
+	      'pointer-events:none'
+	    ].join(';');
+
+	    var progressBottomFill = document.createElement('div');
+	    progressBottomFill.id = '__autoplugin_popup_progress_bottom_fill';
+	    progressBottomFill.style.cssText = [
+	      'height:100%',
+	      'width:100%',
+	      'background:#40a9ff',
+	      'transform-origin:left center',
+	      'transform:scaleX(1)',
+	      'will-change:transform',
+	      'pointer-events:none'
+	    ].join(';');
+	    progressBottom.appendChild(progressBottomFill);
+
+		    var headerWrap = document.createElement('div');
+		    headerWrap.style.cssText = [
+		      'position:relative',
+		      'z-index:1',
 	      'box-sizing:border-box',
 	      'padding:10px 12px 6px 12px',
 	      'pointer-events:none',
@@ -198,20 +228,22 @@
     var body = document.createElement('div');
     body.id = '__autoplugin_popup_body';
 
-    el.appendChild(progress);
-    headerWrap.appendChild(title);
-    bodyWrap.appendChild(body);
-    el.appendChild(headerWrap);
-    el.appendChild(bodyWrap);
-    document.body.appendChild(el);
+	    el.appendChild(progress);
+	    headerWrap.appendChild(title);
+	    bodyWrap.appendChild(body);
+	    el.appendChild(headerWrap);
+	    el.appendChild(bodyWrap);
+	    el.appendChild(progressBottom);
+	    document.body.appendChild(el);
 
 	    popupEl = el;
 	    popupBodyEl = body;
-	    popupScrollEl = bodyWrap;
-	    popupHeaderEl = headerWrap;
-	    popupHeaderHeight = headerWrap.offsetHeight || popupHeaderHeight;
-	    popupProgressFillEl = progressFill;
-	    renderedCount = 0;
+		    popupScrollEl = bodyWrap;
+		    popupHeaderEl = headerWrap;
+		    popupHeaderHeight = headerWrap.offsetHeight || popupHeaderHeight;
+		    popupProgressFillEl = progressFill;
+		    popupProgressFillBottomEl = progressBottomFill;
+		    renderedCount = 0;
 
 	    updatePopupLayout();
 	    try {
@@ -348,38 +380,56 @@
     scrollToBottomPending = false;
   }
 
-  function restartPopupProgressBar() {
-    if (LOG_MODE === 0) return;
-    if (!popupProgressFillEl) return;
+	  function startProgressBars(ms) {
+	    if (LOG_MODE === 0) return;
+	    if (!popupProgressFillEl && !popupProgressFillBottomEl) return;
 
-    popupProgressSeq++;
-    var seq = popupProgressSeq;
+	    popupProgressSeq++;
+	    var seq = popupProgressSeq;
+	    var dur = (typeof ms === 'number') ? ms : POPUP_MS;
 
-    safe(function () {
-      popupProgressFillEl.style.transition = 'none';
-      popupProgressFillEl.style.transform = 'scaleX(1)';
-      // Force reflow so the reset state is applied before starting the transition.
-      void popupProgressFillEl.offsetWidth;
-    });
+	    function resetOne(el) {
+	      if (!el) return;
+	      el.style.transition = 'none';
+	      el.style.transform = 'scaleX(1)';
+	      // Force reflow so the reset state is applied before starting the transition.
+	      void el.offsetWidth;
+	    }
 
-    function start() {
-      if (seq !== popupProgressSeq) return;
-      safe(function () {
-        popupProgressFillEl.style.transition = 'transform ' + String(POPUP_MS) + 'ms linear';
-        popupProgressFillEl.style.transform = 'scaleX(0)';
+	    safe(function () {
+	      resetOne(popupProgressFillEl);
+	      resetOne(popupProgressFillBottomEl);
+	    });
+
+	    function start() {
+	      if (seq !== popupProgressSeq) return;
+	      safe(function () {
+	        if (popupProgressFillEl) {
+	          popupProgressFillEl.style.transition = 'transform ' + String(dur) + 'ms linear';
+	          popupProgressFillEl.style.transform = 'scaleX(0)';
+	        }
+	        if (popupProgressFillBottomEl) {
+	          popupProgressFillBottomEl.style.transition = 'transform ' + String(dur) + 'ms linear';
+	          popupProgressFillBottomEl.style.transform = 'scaleX(0)';
+	        }
+	      });
+	    }
+
+	    if (!dur || dur <= 0) return start();
+
+	    if (window.requestAnimationFrame) {
+	      window.requestAnimationFrame(function () {
+	        window.requestAnimationFrame(start);
       });
-    }
+	    } else setTimeout(start, 0);
+	  }
 
-    if (!POPUP_MS || POPUP_MS <= 0) return start();
+	  function hidePopup() {
+	    if (!popupEl) return;
+	    popupEl.style.display = 'none';
+	  }
 
-    if (window.requestAnimationFrame) {
-      window.requestAnimationFrame(function () {
-        window.requestAnimationFrame(start);
-      });
-    } else setTimeout(start, 0);
-  }
-
-	  function showPopupNow() {
+	  function armPopupLifetime(reason) {
 	    if (LOG_MODE === 0) return;
 	    var el = ensurePopup();
 	    var scrollEl = popupScrollEl;
@@ -393,18 +443,31 @@
 	    // Popup is visual-only (no manual scroll), so always keep last lines visible.
 	    scrollToBottomPending = true;
 
-	    // Prevent extending the auto-hide timer too frequently on log bursts.
+	    // Extend lifetime only when we really re-arm (throttled on bursts).
 	    if (wasVisible && lastShowTs && (now - lastShowTs) < SHOW_THROTTLE_MS) return;
 	    lastShowTs = now;
-
-	    restartPopupProgressBar();
 
 	    if (popupTimer) clearTimeout(popupTimer);
 	    popupTimer = setTimeout(function () {
 	      popupTimer = null;
-	      if (popupEl) popupEl.style.display = 'none';
+	      hidePopup();
 	    }, POPUP_MS);
+
+	    // Single source of truth: progressbars represent the same POPUP_MS as the hide timer.
+	    startProgressBars(POPUP_MS);
+
+	    // Optional diagnostics (console only; avoids recursion into popup logger).
+	    safe(function () {
+	      if (LOG_MODE !== 2) return;
+	      if (!console || !console.debug) return;
+	      console.debug(String(PREFIX) + ' DBG LogUI: arm ' + String(reason || 'log') + ' | ms=' + String(POPUP_MS));
+	    });
 	  }
+
+		  function showPopupNow() {
+		    if (LOG_MODE === 0) return;
+		    armPopupLifetime('log');
+		  }
 
   function pushPopupLine(line, tag, key) {
     if (LOG_MODE === 0) return;
