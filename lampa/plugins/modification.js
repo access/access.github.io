@@ -4,18 +4,13 @@
   // =========================
   // CONFIG
   // =========================
-
-  // текущий ключ (можно менять, архитектура поддерживает список)
   const AUTH_KEY = 'msx_fake_auth_ok_v2';
 
-  // Пайплайн шагов (легко менять порядок/добавлять)
-  // IMPORTANT: файлы лежат рядом с modification.js
   const PIPELINE = [
     { name: 'preload', src: 'mod.preload.js' },
     { name: 'autoplugin', src: 'mod.autoplugin.js' }
   ];
 
-  // auth list file (рядом)
   const AUTH_JSON = 'mod.auth.json';
 
   // =========================
@@ -23,12 +18,12 @@
   // =========================
   function getAuthed() {
     try { return !!(window.Lampa && Lampa.Storage && Lampa.Storage.get(AUTH_KEY)); }
-    catch (e) { return false; }
+    catch (_) { return false; }
   }
 
   function setAuthed(v) {
     try { window.Lampa && Lampa.Storage && Lampa.Storage.set(AUTH_KEY, v ? 1 : 0); }
-    catch (e) { }
+    catch (_) {}
   }
 
   // =========================
@@ -37,8 +32,7 @@
   function baseDir() {
     try {
       var s = document.currentScript && document.currentScript.src ? String(document.currentScript.src) : '';
-      if (!s) return '';
-      return s.slice(0, s.lastIndexOf('/') + 1);
+      return s ? s.slice(0, s.lastIndexOf('/') + 1) : '';
     } catch (_) { return ''; }
   }
   var BASE = baseDir();
@@ -53,89 +47,66 @@
   // =========================
   function loadScriptSeq(url) {
     return new Promise(function (resolve, reject) {
-      try {
-        var s = document.createElement('script');
-        s.src = url;
-        s.async = false; // важно: порядок
-        s.onload = function () { resolve(true); };
-        s.onerror = function () { reject(new Error('load fail: ' + url)); };
-        (document.head || document.documentElement).appendChild(s);
-      } catch (e) {
-        reject(e);
-      }
+      var s = document.createElement('script');
+      s.src = url;
+      s.async = false;
+      s.onload = function () { resolve(true); };
+      s.onerror = function () { reject(new Error('load fail: ' + url)); };
+      (document.head || document.documentElement).appendChild(s);
     });
   }
 
   function runPipeline() {
-    // модуль может экспортить:
-    //  - window.MSX_MOD.step(name)  (опционально)
-    //  - или просто выполнить свой start сам
     var i = 0;
-
     function next() {
       if (i >= PIPELINE.length) return;
-
       var step = PIPELINE[i++];
       var url = abs(step.src);
 
       loadScriptSeq(url).then(function () {
-        try {
-          if (window.MSX_MOD && typeof window.MSX_MOD.step === 'function') {
-            window.MSX_MOD.step(step.name, { base: BASE, src: url }, function () {
-              setTimeout(next, 0);
-            });
-            return;
-          }
-        } catch (_) { }
-        setTimeout(next, 0);
-      }).catch(function (e) {
-        try { console.log('[MSX] pipeline error', step.name, e && e.message ? e.message : e); } catch (_) { }
-        // не стопаем всё намертво: идём дальше
+        if (window.MSX_MOD && typeof window.MSX_MOD.step === 'function') {
+          window.MSX_MOD.step(step.name, { base: BASE, src: url }, function () {
+            setTimeout(next, 0);
+          });
+        } else setTimeout(next, 0);
+      }).catch(function () {
         setTimeout(next, 0);
       });
     }
-
     next();
   }
 
   // =========================
   // AUTH LIST (JSON)
   // =========================
-  // поддержка обеих структур:
-  // 1) { "auth": [ {key, hash}, ... ] }
-  // 2) [ { "auth": [ ... ] } ]   <-- как ты написал
   var AUTH_LIST = [];
 
   function normalizeAuthJson(j) {
-    try {
-      if (!j) return [];
-      if (Array.isArray(j)) {
-        // берем первый объект с auth или склеиваем все
-        var out = [];
-        for (var i = 0; i < j.length; i++) {
-          var a = j[i] && j[i].auth;
-          if (Array.isArray(a)) out = out.concat(a);
-        }
-        return out;
+    if (!j) return [];
+    if (Array.isArray(j)) {
+      var out = [];
+      for (var i = 0; i < j.length; i++) {
+        if (j[i] && Array.isArray(j[i].auth)) out = out.concat(j[i].auth);
       }
-      if (Array.isArray(j.auth)) return j.auth;
-    } catch (_) { }
+      return out;
+    }
+    if (Array.isArray(j.auth)) return j.auth;
     return [];
   }
 
   function loadAuthList() {
-    var url = abs(AUTH_JSON);
-    return fetch(url, { cache: 'no-store' })
+    return fetch(abs(AUTH_JSON), { cache: 'no-store' })
       .then(function (r) { return r.json(); })
       .then(function (j) { AUTH_LIST = normalizeAuthJson(j); })
       .catch(function () { AUTH_LIST = []; });
   }
 
   function findAuthEntry(key, hash) {
-    // поддержка расширения формата в будущем (roles, ttl etc) — просто игнорим лишнее
     for (var i = 0; i < AUTH_LIST.length; i++) {
       var a = AUTH_LIST[i];
-      if (a && String(a.key || '') === String(key) && String(a.hash || '') === String(hash)) return a;
+      if (a && String(a.key) === String(key) && String(a.hash) === String(hash)) {
+        return a;
+      }
     }
     return null;
   }
@@ -154,7 +125,7 @@
   }
 
   // =========================
-  // INTERNAL GUARDS
+  // INTERNAL
   // =========================
   var mainStarted = false;
   var keyGuardInstalled = false;
@@ -170,54 +141,39 @@
   // UI
   // =========================
   var ui = {
-    wrap: null,
-    inp: null,
-    bEnter: null,
-    bUnlock: null,
-    err: null,
-    sel: 0,
-    hashBox: null,
-    hashText: null,
-    hashCopy: null
+    wrap: null, inp: null,
+    bEnter: null, bUnlock: null,
+    err: null, sel: 0,
+    hashBox: null, hashText: null, hashCopy: null
   };
 
   function blurInputHard() {
     if (!ui.inp) return;
-    try { ui.inp.blur(); } catch (_) { }
-    try { ui.inp.setAttribute('readonly', 'readonly'); } catch (_) { }
+    ui.inp.blur();
+    ui.inp.setAttribute('readonly', 'readonly');
     setTimeout(function () {
-      try { ui.inp && ui.inp.removeAttribute('readonly'); } catch (_) { }
+      ui.inp && ui.inp.removeAttribute('readonly');
     }, 0);
   }
 
   function setSel(n) {
-    ui.sel = (n === 1) ? 1 : 0;
-    if (!ui.bEnter || !ui.bUnlock) return;
-
+    ui.sel = n === 1 ? 1 : 0;
     var a = ui.bEnter, b = ui.bUnlock;
-    a.style.outline = 'none'; a.style.background = 'transparent';
-    b.style.outline = 'none'; b.style.background = 'transparent';
-
-    var on = (ui.sel === 0) ? a : b;
+    if (!a || !b) return;
+    a.style.outline = b.style.outline = 'none';
+    a.style.background = b.style.background = 'transparent';
+    var on = ui.sel === 0 ? a : b;
     on.style.outline = '2px solid rgba(255,255,255,.65)';
     on.style.background = 'rgba(255,255,255,.08)';
-
     if (ui.sel === 1) blurInputHard();
   }
 
   function showHashPair(key, hash) {
-    if (!ui.hashBox || !ui.hashText || !ui.hashCopy) return;
-
-    var pair = '{"key":"' + String(key) + '","hash":"' + String(hash) + '"}';
+    var pair = '{"key":"' + key + '","hash":"' + hash + '"}';
     ui.hashText.textContent = pair;
     ui.hashBox.style.display = 'block';
-
     ui.hashCopy.onclick = function () {
-      try {
-        if (navigator.clipboard && navigator.clipboard.writeText) {
-          navigator.clipboard.writeText(pair);
-        }
-      } catch (_) { }
+      navigator.clipboard && navigator.clipboard.writeText(pair);
     };
   }
 
@@ -226,163 +182,80 @@
 
     var wrap = document.createElement('div');
     wrap.id = 'msx_fake_lock';
-    wrap.style.cssText = [
-      'position:fixed', 'top:0', 'left:0', 'right:0', 'bottom:0',
-      'z-index:2147483647',
-      'background:rgba(0,0,0,.92)',
-      'display:flex', 'align-items:center', 'justify-content:center',
-      'padding:24px', 'box-sizing:border-box'
-    ].join(';');
+    wrap.style.cssText =
+      'position:fixed;inset:0;z-index:2147483647;background:rgba(0,0,0,.92);display:flex;align-items:center;justify-content:center';
 
-    var box = document.createElement('div');
-    box.style.cssText = [
-      'width:100%', 'max-width:520px',
-      'border:1px solid rgba(255,255,255,.15)',
-      'border-radius:16px',
-      'padding:18px',
-      'box-sizing:border-box',
-      'color:#fff',
-      'font:16px/1.35 sans-serif'
-    ].join(';');
+    wrap.innerHTML = `
+      <div style="width:520px;padding:18px;border-radius:16px;border:1px solid rgba(255,255,255,.15);color:#fff">
+        <div style="font-size:22px;margin-bottom:10px">Locked</div>
+        <input id="pw" type="password" placeholder="password"
+          style="width:100%;padding:12px;background:#111;border:1px solid #333;border-radius:12px;color:#fff">
+        <div style="margin-top:12px;display:flex;gap:10px">
+          <div id="enter">Enter</div>
+          <div id="unlock">Unlock</div>
+        </div>
+        <div id="err" style="display:none;color:#ff6b6b;margin-top:10px">Wrong password</div>
+        <div id="hash" style="display:none;margin-top:10px;font-size:12px;opacity:.65;word-break:break-all">
+          <span id="hash_txt"></span>
+          <span id="hash_cp" style="cursor:pointer;margin-left:6px">📋</span>
+        </div>
+      </div>`;
 
-    box.innerHTML =
-      '<div style="font-size:22px;margin-bottom:10px">Locked</div>' +
-      '<div style="opacity:.8;margin-bottom:14px">Enter password</div>' +
-      '<input id="msx_pw_inp" type="password" placeholder="password" autocomplete="off" autocapitalize="none" spellcheck="false" style="' +
-      'width:100%;padding:12px 14px;background:#111;' +
-      'border:1px solid rgba(255,255,255,.18);border-radius:12px;' +
-      'color:#fff;outline:none;box-sizing:border-box;' +
-      '"/>' +
-      '<div style="margin-top:12px;display:flex;gap:10px">' +
-      '<div id="msx_btn_enter" style="' +
-      'flex:1;display:flex;align-items:center;justify-content:center;' +
-      'padding:12px 14px;border:1px solid rgba(255,255,255,.22);' +
-      'border-radius:12px;user-select:none;' +
-      '">Enter</div>' +
-      '<div id="msx_btn_unlock" style="' +
-      'flex:1;display:flex;align-items:center;justify-content:center;' +
-      'padding:12px 14px;border:1px solid rgba(255,255,255,.22);' +
-      'border-radius:12px;user-select:none;' +
-      '">Unlock</div>' +
-      '</div>' +
-      '<div id="msx_pw_err" style="margin-top:10px;opacity:.85;display:none;color:#ff6b6b">Wrong password</div>' +
-
-      // hash pair (no focus, no inputs)
-      '<div id="msx_hash_box" style="' +
-      'margin-top:10px;display:none;font-size:12px;opacity:.65;' +
-      'word-break:break-all;user-select:text' +
-      '">' +
-      '<span id="msx_hash_text"></span>' +
-      '<span id="msx_hash_copy" style="margin-left:8px;cursor:pointer;opacity:.8">📋</span>' +
-      '</div>' +
-
-      '<div style="margin-top:10px;opacity:.55;font-size:12px">TV: use arrows and OK</div>';
-
-    wrap.appendChild(box);
     document.body.appendChild(wrap);
 
     ui.wrap = wrap;
-    ui.inp = box.querySelector('#msx_pw_inp');
-    ui.bEnter = box.querySelector('#msx_btn_enter');
-    ui.bUnlock = box.querySelector('#msx_btn_unlock');
-    ui.err = box.querySelector('#msx_pw_err');
+    ui.inp = wrap.querySelector('#pw');
+    ui.bEnter = wrap.querySelector('#enter');
+    ui.bUnlock = wrap.querySelector('#unlock');
+    ui.err = wrap.querySelector('#err');
+    ui.hashBox = wrap.querySelector('#hash');
+    ui.hashText = wrap.querySelector('#hash_txt');
+    ui.hashCopy = wrap.querySelector('#hash_cp');
 
-    ui.hashBox = box.querySelector('#msx_hash_box');
-    ui.hashText = box.querySelector('#msx_hash_text');
-    ui.hashCopy = box.querySelector('#msx_hash_copy');
-
-    blurInputHard();
     setSel(0);
+    blurInputHard();
 
-    ui.bEnter.addEventListener('click', function () { focusInput(); }, true);
-    ui.bUnlock.addEventListener('click', function () { submit(); }, true);
-
-    ui.inp.addEventListener('keydown', function (e) {
-      if (e.key === 'Enter' || (e.keyCode || 0) === 13) submit();
-    }, true);
+    ui.bEnter.onclick = focusInput;
+    ui.bUnlock.onclick = submit;
+    ui.inp.onkeydown = e => e.key === 'Enter' && submit();
   }
 
   function focusInput() {
-    if (!ui.inp) return;
-    try { ui.err && (ui.err.style.display = 'none'); } catch (_) { }
+    ui.err.style.display = 'none';
     setSel(0);
-    try { ui.inp.focus(); } catch (_) { }
+    ui.inp.focus();
   }
 
   function submit() {
-    if (!ui.inp) return;
-
-    blurInputHard();
-
     var v = String(ui.inp.value || '').trim();
     if (!v) return;
 
-    // crypto must exist
-    if (!(window.crypto && crypto.subtle && window.TextEncoder)) {
-      try { ui.err && (ui.err.style.display = 'block'); } catch (_) { }
-      try { ui.err && (ui.err.textContent = 'No WebCrypto'); } catch (_) { }
-      return;
-    }
+    blurInputHard();
 
     sha256Base64(v).then(function (hash) {
-      // показываем пару для добавления в JSON
+      // FIX: пара выводится ВСЕГДА
       showHashPair(AUTH_KEY, hash);
 
       if (findAuthEntry(AUTH_KEY, hash)) {
         setAuthed(true);
         detachKeyGuard();
-        try { ui.wrap && ui.wrap.remove(); } catch (_) { }
+        ui.wrap.remove();
         startMainOnce();
       } else {
-        try { ui.err && (ui.err.style.display = 'block'); } catch (_) { }
-        try { ui.inp.value = ''; } catch (_) { }
+        ui.err.style.display = 'block';
+        ui.inp.value = '';
         setSel(0);
-        blurInputHard();
       }
-    }).catch(function () {
-      try { ui.err && (ui.err.style.display = 'block'); } catch (_) { }
     });
   }
 
   // =========================
   // KEY GUARD
   // =========================
-  function isNavKeyCode(k) {
-    return (
-      k === 38 || k === 40 || k === 37 || k === 39 ||
-      k === 19 || k === 20 || k === 21 || k === 22 ||
-      k === 13 || k === 23 ||
-      k === 27 || k === 8 || k === 461 || k === 10009
-    );
-  }
-
   function keyGuardHandler(e) {
     if (!document.getElementById('msx_fake_lock')) return;
-
-    var k = e.keyCode || 0;
-    var t = e.target;
-
-    var isInput = t && (t.id === 'msx_pw_inp' || t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.isContentEditable);
-
-    if (isInput && !isNavKeyCode(k)) {
-      e.stopImmediatePropagation();
-      return;
-    }
-
     e.preventDefault();
     e.stopImmediatePropagation();
-
-    if (k === 37 || k === 21) { setSel(0); return; }
-    if (k === 39 || k === 22) { setSel(1); return; }
-
-    if (k === 38 || k === 19) { setSel(0); return; }
-    if (k === 40 || k === 20) { setSel(1); return; }
-
-    if (k === 13 || k === 23) {
-      if (ui.sel === 0) focusInput();
-      else submit();
-      return;
-    }
   }
 
   function attachKeyGuard() {
@@ -403,9 +276,9 @@
   function watchOverlay() {
     if (rescueTimer) return;
     rescueTimer = setInterval(function () {
-      if (getAuthed()) return;
-      if (!document.body) return;
-      if (!document.getElementById('msx_fake_lock')) ensureOverlay();
+      if (!getAuthed() && !document.getElementById('msx_fake_lock')) {
+        ensureOverlay();
+      }
     }, 400);
   }
 
@@ -415,12 +288,10 @@
   function BOOT() {
     if (getAuthed()) { startMainOnce(); return; }
     if (!document.body) { setTimeout(BOOT, 50); return; }
-
     attachKeyGuard();
     ensureOverlay();
     watchOverlay();
   }
 
-  // сначала грузим JSON (иначе сравнивать нечего)
   loadAuthList().then(BOOT);
 })();
