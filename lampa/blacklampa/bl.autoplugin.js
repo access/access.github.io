@@ -23,7 +23,10 @@
   }
 
   function configUrl(base) {
-    try { return String(new URL('bl.autoplugin.json', base || location.href).href); } catch (_) { return 'bl.autoplugin.json'; }
+    var cfg = BL.Config || {};
+    var apCfg = cfg.autoplugin || {};
+    var file = String(apCfg.jsonFile || '');
+    try { return String(new URL(file, base || location.href).href); } catch (_) { return file; }
   }
 
   function normalizeConfig(cfg) {
@@ -63,33 +66,33 @@
         resolve(true);
       }
 
-      function doneLaterFallback() {
-        setTimeout(function () { doneSafe(); }, 90000);
-      }
+	      function doneLaterFallback() {
+	        var cfg = BL.Config || {};
+	        var apCfg = cfg.autoplugin || {};
+	        var ms = (typeof apCfg.doneFallbackMs === 'number') ? apCfg.doneFallbackMs : 0;
+	        if (ms > 0) setTimeout(function () { doneSafe(); }, ms);
+	      }
 
       function startWithConfig(cfg) {
-        cfg = normalizeConfig(cfg);
+	        cfg = normalizeConfig(cfg);
 
-        var cfgOpts = cfg.options || {};
+	        var cfgOpts = cfg.options || {};
 
-        var DEFAULT_LOG_MODE = toInt(pickOption(cfgOpts, 'defaultLogMode', 1), 1);
-        var AUTO_ENABLE_DISABLED = !!pickOption(cfgOpts, 'autoEnableDisabled', true);
-        var INJECT_NEWLY_INSTALLED = !!pickOption(cfgOpts, 'injectNewlyInstalled', true);
+	        var cfgAll = BL.Config || {};
+	        var logCfg = cfgAll.log || {};
+	        var defaultMode0 = (typeof logCfg.defaultMode === 'number') ? logCfg.defaultMode : 0;
+	        var DEFAULT_LOG_MODE = toInt(pickOption(cfgOpts, 'defaultLogMode', defaultMode0), defaultMode0);
+	        var AUTO_ENABLE_DISABLED = !!pickOption(cfgOpts, 'autoEnableDisabled', true);
+	        var INJECT_NEWLY_INSTALLED = !!pickOption(cfgOpts, 'injectNewlyInstalled', true);
         // Auto-reload disabled intentionally (BlackLampa policy).
         // The page must never be reloaded automatically after installs/resets/reinit.
         var RELOAD_AFTER_FIRST_INSTALL = false;
         var RELOAD_DELAY_SEC = 0;
 
-        safe(function () {
-          if (BL.Log && BL.Log.init) {
-            BL.Log.init({
-              defaultMode: DEFAULT_LOG_MODE,
-              titlePrefix: 'BlackLampa log',
-              popupMs: 5000,
-              maxLines: 120
-            });
-          }
-        });
+	        safe(function () {
+	          try { BL.Config && BL.Config.log && (BL.Config.log.defaultMode = DEFAULT_LOG_MODE); } catch (_) { }
+	          if (BL.Log && BL.Log.init) BL.Log.init({ defaultMode: DEFAULT_LOG_MODE });
+	        });
 
         var LOG_MODE = safe(function () { return BL.Log && BL.Log.mode ? BL.Log.mode() : 0; }) || 0;
 
@@ -113,14 +116,17 @@
           }
         } catch (_) { }
 
-        // ============================================================================
-        // ONE-TIME INSTALL FLAGS
-        // ============================================================================
-        var AP_KEYS = {
-          done: 'ap_installer_done_v1',
-          sig: 'ap_installer_sig_v1',
-          ts: 'ap_installer_ts_v1'
-        };
+	        // ============================================================================
+	        // ONE-TIME INSTALL FLAGS
+	        // ============================================================================
+	        var cfgAll2 = BL.Config || {};
+	        var apCfg2 = cfgAll2.autoplugin || {};
+	        var apFlags2 = apCfg2.flags || {};
+	        var AP_KEYS = {
+	          done: String(apFlags2.done || ''),
+	          sig: String(apFlags2.sig || ''),
+	          ts: String(apFlags2.ts || '')
+	        };
 
         // Storage helpers (official Lampa API):
         // - For plugin install/remove and related flags we use Lampa.Storage (like lampa/scripts/addon.js).

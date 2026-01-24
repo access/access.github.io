@@ -4,24 +4,30 @@
   var BL = window.BL = window.BL || {};
   BL.Log = BL.Log || {};
 
-  var DEFAULT_LOG_MODE = 1;
+  var DEFAULT_LOG_MODE = 0;
   var LOG_MODE = 0;
 
   // Prefix is intentionally fixed for the whole project.
   // Logs must always start with "[BlackLampa] ..." (console and popup).
   var PREFIX = '[BlackLampa]';
 
-  var TITLE_PREFIX = 'BlackLampa log';
+  var TITLE_PREFIX = '';
 
-	  var POPUP_MS = 5000;
-	  var MAX_LINES = 120;
+  // Runtime config (filled from BL.Config in init()).
+  var POPUP_MS = 0;
+  var MAX_LINES = 0;
+  var SCROLL_TOL_PX = 0;
+  var SHOW_THROTTLE_MS = 0;
+
+  var POPUP_Z_INDEX = 0;
+  var POPUP_INSET_PX = 0;
+  var POPUP_BORDER_RADIUS_PX = 0;
+  var POPUP_PROGRESS_HEIGHT_PX = 0;
 
 	  var popupEl = null;
 	  var popupTimer = null;
 	  var lastShowTs = 0;
-	  var SHOW_THROTTLE_MS = 400;
 
-	  var popupQueue = [];
 	  var popupBodyEl = null;
 	  var popupScrollEl = null;
 	  var popupHeaderEl = null;
@@ -30,7 +36,6 @@
 	  var popupProgressFillEl = null;
 	  var popupProgressFillBottomEl = null;
 	  var popupProgressSeq = 0;
-	  var renderedCount = 0;
 
   var TAG_STYLE = {
     'ERR': { color: '#ff4d4f' },
@@ -41,8 +46,6 @@
   };
 
   var POPUP_FONT = '12px/1.35 Courier, "Courier New", monospace';
-  var SCROLL_TOL_PX = 40;
-  var scrollToBottomPending = false;
 
   function safe(fn) { try { return fn(); } catch (_) { return null; } }
 
@@ -56,15 +59,31 @@
   }
 
 	  function getLogMode() {
-    var q = BL.Core && BL.Core.getQueryParam ? BL.Core.getQueryParam('aplog') : null;
-    if (q == null && BL.Core && BL.Core.getQueryParam) q = BL.Core.getQueryParam('apmode');
-    if (q != null) return clampMode((BL.Core && BL.Core.toInt) ? BL.Core.toInt(q, DEFAULT_LOG_MODE) : DEFAULT_LOG_MODE);
+	    var cfg = BL.Config || {};
+	    var logCfg = cfg.log || {};
 
-    try {
-      var ls = null;
-      try { ls = localStorage.getItem('aplog'); } catch (_) { }
-      if (ls != null && ls !== '') return clampMode((BL.Core && BL.Core.toInt) ? BL.Core.toInt(ls, DEFAULT_LOG_MODE) : DEFAULT_LOG_MODE);
-    } catch (_) { }
+	    var q = null;
+	    try {
+	      var qp = logCfg.modeQueryParams;
+	      if (BL.Core && BL.Core.getQueryParam && qp && qp.length) {
+	        for (var i = 0; i < qp.length; i++) {
+	          q = BL.Core.getQueryParam(String(qp[i]));
+	          if (q != null) break;
+	        }
+	      }
+	    } catch (_) { q = null; }
+
+	    if (q != null) return clampMode((BL.Core && BL.Core.toInt) ? BL.Core.toInt(q, DEFAULT_LOG_MODE) : DEFAULT_LOG_MODE);
+
+	    try {
+	      var lsKey = '';
+	      try { if (typeof logCfg.modeLsKey === 'string') lsKey = String(logCfg.modeLsKey || ''); } catch (_) { lsKey = ''; }
+	      if (lsKey) {
+	        var ls = null;
+	        try { ls = localStorage.getItem(lsKey); } catch (_) { }
+	        if (ls != null && ls !== '') return clampMode((BL.Core && BL.Core.toInt) ? BL.Core.toInt(ls, DEFAULT_LOG_MODE) : DEFAULT_LOG_MODE);
+	      }
+	    } catch (_) { }
 
 	    return clampMode(DEFAULT_LOG_MODE);
 	  }
@@ -78,8 +97,8 @@
 	      if (h > 0) popupHeaderHeight = h;
 	      else h = popupHeaderHeight || 0;
 
-	      // +2px for progressbar height.
-	      popupScrollEl.style.top = String(h + 2) + 'px';
+	      // +progressbar height (top bar).
+	      popupScrollEl.style.top = String(h + POPUP_PROGRESS_HEIGHT_PX) + 'px';
 	    } catch (_) { }
 	  }
 
@@ -97,14 +116,14 @@
       'unicode-bidi:plaintext',
       'position:fixed',
       'isolation:isolate',
-      'top:5px',
-      'left:5px',
-      'right:5px',
-      'bottom:5px',
-      'z-index:2147483647',
+      'top:' + String(POPUP_INSET_PX) + 'px',
+      'left:' + String(POPUP_INSET_PX) + 'px',
+      'right:' + String(POPUP_INSET_PX) + 'px',
+      'bottom:' + String(POPUP_INSET_PX) + 'px',
+      'z-index:' + String(POPUP_Z_INDEX),
       'background:rgba(0,0,0,0.44)',
       'color:#fff',
-      'border-radius:12px',
+      'border-radius:' + String(POPUP_BORDER_RADIUS_PX) + 'px',
       'box-sizing:border-box',
       'padding:0',
       'font:' + POPUP_FONT,
@@ -138,9 +157,9 @@
       'left:0',
       'right:0',
       'z-index:3',
-      'height:2px',
+      'height:' + String(POPUP_PROGRESS_HEIGHT_PX) + 'px',
       'background:rgba(255,255,255,0.15)',
-      'border-radius:12px 12px 0 0',
+      'border-radius:' + String(POPUP_BORDER_RADIUS_PX) + 'px ' + String(POPUP_BORDER_RADIUS_PX) + 'px 0 0',
       'overflow:hidden',
       'pointer-events:none'
     ].join(';');
@@ -167,9 +186,9 @@
 	      'right:0',
 	      'bottom:0',
 	      'z-index:3',
-	      'height:2px',
+	      'height:' + String(POPUP_PROGRESS_HEIGHT_PX) + 'px',
 	      'background:rgba(255,255,255,0.15)',
-	      'border-radius:0 0 12px 12px',
+	      'border-radius:0 0 ' + String(POPUP_BORDER_RADIUS_PX) + 'px ' + String(POPUP_BORDER_RADIUS_PX) + 'px',
 	      'overflow:hidden',
 	      'pointer-events:none'
 	    ].join(';');
@@ -243,7 +262,6 @@
 		    popupHeaderHeight = headerWrap.offsetHeight || popupHeaderHeight;
 		    popupProgressFillEl = progressFill;
 		    popupProgressFillBottomEl = progressBottomFill;
-		    renderedCount = 0;
 
 	    updatePopupLayout();
 	    try {
@@ -256,41 +274,8 @@
 	      }, true);
 	    } catch (_) { }
 
-	    safe(function () { schedulePopupFlush(); });
-	    return el;
-	  }
-
-  function clearNode(node) {
-    try { while (node && node.firstChild) node.removeChild(node.firstChild); } catch (_) { }
-  }
-
-  var COALESCE_WINDOW_MS = 1500;
-  var lastKey = '';
-  var lastIdx = -1;
-  var lastTs = 0;
-
-  var RATE_MAX_PER_SEC = 25;
-  var rateBucketTs = 0;
-  var rateBucketCount = 0;
-
-  function makeKey(tag, source, message, extra) {
-    return String(tag) + '|' + String(source) + '|' + String(message) + '|' + String(extra || '');
-  }
-
-  function rateAllow() {
-    var now = Date.now();
-    if (!rateBucketTs || (now - rateBucketTs) >= 1000) {
-      rateBucketTs = now;
-      rateBucketCount = 0;
-    }
-    rateBucketCount++;
-    return rateBucketCount <= RATE_MAX_PER_SEC;
-  }
-
-  function decorateLine(line, count) {
-    if (!count || count <= 1) return line;
-    return line + '  ×' + String(count);
-  }
+		    return el;
+		  }
 
   function isAtBottom(el) {
     try {
@@ -304,24 +289,9 @@
     try { el.scrollTop = el.scrollHeight; } catch (_) { }
   }
 
-  var flushScheduled = false;
-  function schedulePopupFlush() {
-    if (LOG_MODE === 0) return;
-    if (flushScheduled) return;
-    flushScheduled = true;
-
-    var runner = function () {
-      flushScheduled = false;
-      flushPopupToDom();
-    };
-
-    if (window.requestAnimationFrame) window.requestAnimationFrame(runner);
-    else setTimeout(runner, 0);
-  }
-
-  function makeRow(entry) {
+  function makeRow(line, tag) {
     var row = document.createElement('div');
-    row.textContent = entry.line;
+    row.textContent = String(line);
     row.style.cssText = [
       'font:' + POPUP_FONT,
       'font-weight:500',
@@ -329,55 +299,31 @@
       'padding:0'
     ].join(';');
 
-    var tag = entry.tag;
     if (tag && TAG_STYLE[tag]) row.style.color = TAG_STYLE[tag].color;
 
     return row;
   }
 
-  function fullRebuild() {
-    if (!popupEl || !popupBodyEl) return;
+  function appendPopupLine(line, tag) {
+    if (LOG_MODE === 0) return;
+    var el = ensurePopup();
+    var scrollEl = popupScrollEl;
+    if (!el || !popupBodyEl || !scrollEl) return;
 
-    clearNode(popupBodyEl);
-    var frag = document.createDocumentFragment();
-    for (var i = 0; i < popupQueue.length; i++) frag.appendChild(makeRow(popupQueue[i]));
-    popupBodyEl.appendChild(frag);
-    renderedCount = popupQueue.length;
-  }
+    // Autoscroll only if user is already at bottom.
+    var shouldScroll = isAtBottom(scrollEl);
 
-	  function flushPopupToDom() {
-	    var el = ensurePopup();
-	    var scrollEl = popupScrollEl;
-	    if (!el || !popupBodyEl || !scrollEl) return;
+    popupBodyEl.appendChild(makeRow(line, tag));
 
-	    // Sticky-to-bottom:
-	    // - if already at bottom => keep auto-scrolling
-	    // - if user could scroll up (legacy debug) => do not yank (but popup is non-interactive now)
-	    // - if popup was just shown => scroll down once
-	    var wasAtBottom = isAtBottom(scrollEl);
-	    var shouldScroll = scrollToBottomPending || wasAtBottom;
-
-    if (renderedCount > popupQueue.length) renderedCount = 0;
-
-    if (renderedCount === 0 && popupQueue.length > 0 && popupBodyEl.childNodes.length === 0) {
-      fullRebuild();
-    } else {
-      if (renderedCount < popupQueue.length) {
-        var frag = document.createDocumentFragment();
-        for (var i = renderedCount; i < popupQueue.length; i++) frag.appendChild(makeRow(popupQueue[i]));
-        popupBodyEl.appendChild(frag);
-        renderedCount = popupQueue.length;
+    // Keep DOM bounded to avoid UI degradation on long sessions.
+    var max = MAX_LINES;
+    if (max && max > 0) {
+      while (popupBodyEl.childNodes.length > max) {
+        try { popupBodyEl.removeChild(popupBodyEl.firstChild); } catch (_) { break; }
       }
     }
 
-    safe(function () {
-      var lastDom = popupBodyEl.lastChild;
-      var lastQ = popupQueue[popupQueue.length - 1];
-      if (lastDom && lastQ && lastDom.textContent !== lastQ.line) lastDom.textContent = lastQ.line;
-    });
-
     if (shouldScroll) scrollToBottom(scrollEl);
-    scrollToBottomPending = false;
   }
 
 	  function startProgressBars(ms) {
@@ -438,14 +384,14 @@
 	    var now = Date.now();
 	    var wasVisible = (el.style.display !== 'none');
 
-	    el.style.display = 'block';
-	    updatePopupLayout();
-	    // Popup is visual-only (no manual scroll), so always keep last lines visible.
-	    scrollToBottomPending = true;
-
 	    // Extend lifetime only when we really re-arm (throttled on bursts).
 	    if (wasVisible && lastShowTs && (now - lastShowTs) < SHOW_THROTTLE_MS) return;
 	    lastShowTs = now;
+
+	    el.style.display = 'block';
+	    updatePopupLayout();
+	    // Popup lifecycle only: timer + progressbars.
+	    // (Scroll is handled synchronously per appended line.)
 
 	    if (popupTimer) clearTimeout(popupTimer);
 	    popupTimer = setTimeout(function () {
@@ -469,48 +415,10 @@
 		    armPopupLifetime('log');
 		  }
 
-  function pushPopupLine(line, tag, key) {
+  function pushPopupLine(line, tag) {
     if (LOG_MODE === 0) return;
-
-    if (!rateAllow()) {
-      var now = Date.now();
-      if ((now - rateBucketTs) < 1000 && rateBucketCount === (RATE_MAX_PER_SEC + 1)) {
-        var l = formatLine('WRN', 'Log', 'rate limited', 'max=' + String(RATE_MAX_PER_SEC) + '/s');
-        popupQueue.push({ line: l, tag: 'WRN', key: 'rate', ts: now, count: 1 });
-        while (popupQueue.length > MAX_LINES) { popupQueue.shift(); renderedCount = 0; }
-        schedulePopupFlush();
-        showPopupNow();
-      }
-      return;
-    }
-
-    var t = Date.now();
-
-    if (key && key === lastKey && (t - lastTs) <= COALESCE_WINDOW_MS && lastIdx >= 0 && lastIdx < popupQueue.length) {
-      var e = popupQueue[lastIdx];
-      e.count = (e.count || 1) + 1;
-      e.line = decorateLine(line, e.count);
-      popupQueue[lastIdx] = e;
-      schedulePopupFlush();
-      showPopupNow();
-      return;
-    }
-
-    popupQueue.push({ line: line, tag: tag || '', key: key || '', ts: t, count: 1 });
-
-    while (popupQueue.length > MAX_LINES) {
-      popupQueue.shift();
-      renderedCount = 0;
-      lastIdx = -1;
-      lastKey = '';
-    }
-
-    lastKey = key || '';
-    lastIdx = popupQueue.length - 1;
-    lastTs = t;
-
-    schedulePopupFlush();
-    showPopupNow();
+    armPopupLifetime('log');
+    appendPopupLine(line, tag);
   }
 
   function consoleMirror(tag, line) {
@@ -532,10 +440,9 @@
   function showLine(tag, source, message, extra) {
     if (LOG_MODE === 0) return;
     var line = formatLine(tag, source, message, extra);
-    var key = makeKey(tag, source, message, extra);
 
     consoleMirror(tag, line);
-    pushPopupLine(line, tag, key);
+    pushPopupLine(line, tag);
   }
 
   function installBodyObserverOnce() {
@@ -557,17 +464,35 @@
   }
 
 	  BL.Log.init = function (opts) {
-    opts = opts || {};
+	    opts = opts || {};
 
-    if (typeof opts.defaultMode === 'number') DEFAULT_LOG_MODE = opts.defaultMode;
-    if (typeof opts.titlePrefix === 'string') TITLE_PREFIX = opts.titlePrefix;
-    if (typeof opts.popupMs === 'number') POPUP_MS = opts.popupMs;
-    if (typeof opts.maxLines === 'number') MAX_LINES = opts.maxLines;
+	    // Merge legacy init(opts) into BL.Config (single source of truth).
+	    var cfg = BL.Config = BL.Config || {};
+	    var uiCfg = cfg.ui = cfg.ui || {};
+	    var logCfg = cfg.log = cfg.log || {};
 
-    LOG_MODE = getLogMode();
+	    try { if (typeof opts.defaultMode === 'number') logCfg.defaultMode = opts.defaultMode; } catch (_) { }
+	    try { if (typeof opts.titlePrefix === 'string') logCfg.titlePrefix = opts.titlePrefix; } catch (_) { }
+	    try { if (typeof opts.popupMs === 'number') uiCfg.popupMs = opts.popupMs; } catch (_) { }
+	    try { if (typeof opts.maxLines === 'number') logCfg.maxLines = opts.maxLines; } catch (_) { }
 
-	    // If popup already exists, refresh a few dynamic bits (mode/title/pointer-events).
-	    // This keeps behavior stable across multiple init() calls (PHASE 0 + later modules).
+	    // Read runtime values from BL.Config.
+	    try { if (typeof logCfg.defaultMode === 'number') DEFAULT_LOG_MODE = logCfg.defaultMode; } catch (_) { }
+	    try { if (typeof logCfg.titlePrefix === 'string') TITLE_PREFIX = logCfg.titlePrefix; } catch (_) { }
+	    try { if (typeof uiCfg.popupMs === 'number') POPUP_MS = uiCfg.popupMs; } catch (_) { }
+	    try { if (typeof logCfg.maxLines === 'number') MAX_LINES = logCfg.maxLines; } catch (_) { }
+
+	    try { if (typeof uiCfg.popupScrollTolPx === 'number') SCROLL_TOL_PX = uiCfg.popupScrollTolPx; } catch (_) { }
+	    try { if (typeof logCfg.showThrottleMs === 'number') SHOW_THROTTLE_MS = logCfg.showThrottleMs; } catch (_) { }
+
+	    try { if (typeof uiCfg.popupZIndex === 'number') POPUP_Z_INDEX = uiCfg.popupZIndex; } catch (_) { }
+	    try { if (typeof uiCfg.popupInsetPx === 'number') POPUP_INSET_PX = uiCfg.popupInsetPx; } catch (_) { }
+	    try { if (typeof uiCfg.popupBorderRadiusPx === 'number') POPUP_BORDER_RADIUS_PX = uiCfg.popupBorderRadiusPx; } catch (_) { }
+	    try { if (typeof uiCfg.popupProgressHeightPx === 'number') POPUP_PROGRESS_HEIGHT_PX = uiCfg.popupProgressHeightPx; } catch (_) { }
+
+	    LOG_MODE = getLogMode();
+
+	    // If popup already exists, refresh dynamic bits (mode/title).
 	    safe(function () {
 	      if (!popupEl) return;
 	      try {
@@ -576,8 +501,8 @@
 	      } catch (_) { }
 	    });
 
-    installBodyObserverOnce();
-    return LOG_MODE;
+	    installBodyObserverOnce();
+	    return LOG_MODE;
   };
 
   BL.Log.mode = function () { return LOG_MODE; };

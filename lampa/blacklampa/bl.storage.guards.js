@@ -13,8 +13,11 @@
   BL.Storage.lsSet = lsSet;
   BL.Storage.lsDel = lsDel;
 
-  var LS_PLUGINS_BLACKLIST_KEY = 'plugins_blacklist';
-  var LS_PLUGINS_BLACKLIST_EMPTY = '[]'; // важно: обычно там JSON-строка массива
+  // Centralized config (single source of truth).
+  var storageCfg = (BL.Config && BL.Config.storage) ? BL.Config.storage : {};
+  var LS_PLUGINS_BLACKLIST_KEY = String(storageCfg.pluginsBlacklistKey || '');
+  var LS_PLUGINS_BLACKLIST_EMPTY = String(storageCfg.pluginsBlacklistEmpty || ''); // важно: обычно там JSON-строка массива
+  var LS_PLUGINS_BLACKLIST_WATCHDOG_MS = (typeof storageCfg.pluginsBlacklistWatchdogMs === 'number') ? storageCfg.pluginsBlacklistWatchdogMs : 0;
 
   function logCall(log, method, source, message, extra) {
     try {
@@ -26,6 +29,8 @@
 
   function clearPluginsBlacklist(reason, log) {
     try {
+      if (!LS_PLUGINS_BLACKLIST_KEY) return;
+      if (!LS_PLUGINS_BLACKLIST_EMPTY) return;
       var cur = null;
       try { cur = localStorage.getItem(LS_PLUGINS_BLACKLIST_KEY); } catch (_) { }
       if (cur !== null && cur !== LS_PLUGINS_BLACKLIST_EMPTY) {
@@ -112,15 +117,15 @@
       }
     } catch (_) { }
 
-    // 4) страховка (на ТВ иногда пишут мимо наших хуков)
-    try {
-      if (!window.__ap_bl_watchdog) {
-        window.__ap_bl_watchdog = setInterval(function () {
-          clearPluginsBlacklist('watchdog', log);
-        }, 2000);
-      }
-    } catch (_) { }
-  }
+	    // 4) страховка (на ТВ иногда пишут мимо наших хуков)
+	    try {
+	      if (LS_PLUGINS_BLACKLIST_WATCHDOG_MS > 0 && !window.__ap_bl_watchdog) {
+	        window.__ap_bl_watchdog = setInterval(function () {
+	          clearPluginsBlacklist('watchdog', log);
+	        }, LS_PLUGINS_BLACKLIST_WATCHDOG_MS);
+	      }
+	    } catch (_) { }
+	  }
 
   BL.Storage.Guards.LS_PLUGINS_BLACKLIST_KEY = LS_PLUGINS_BLACKLIST_KEY;
   BL.Storage.Guards.LS_PLUGINS_BLACKLIST_EMPTY = LS_PLUGINS_BLACKLIST_EMPTY;

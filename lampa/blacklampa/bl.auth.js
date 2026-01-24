@@ -7,10 +7,11 @@
   // =========================
   // CONFIG
   // =========================
-  var AUTH_KEY = 'msx_fake_auth_ok_v2';
+  // Single source of truth: BL.Config.auth.*
+  var AUTH_KEY = String((BL.Config && BL.Config.auth && BL.Config.auth.key) || '');
   // `bl.auth.json` is the only source of BlackLampa auth configuration.
   // Intentionally fixed to a single file name/path to keep the subsystem self-contained.
-  var AUTH_JSON = '/lampa/blacklampa/bl.auth.json';
+  var AUTH_JSON = String((BL.Config && BL.Config.auth && BL.Config.auth.authJson) || '');
 
   // =========================
   // STORAGE (Lampa)
@@ -461,8 +462,14 @@
     if (startPromise) return startPromise;
 
     try {
-      if (opts && typeof opts.key === 'string' && opts.key) AUTH_KEY = String(opts.key);
-      if (opts && typeof opts.authJson === 'string' && opts.authJson) AUTH_JSON = String(opts.authJson);
+      if (opts && typeof opts.key === 'string' && opts.key) {
+        AUTH_KEY = String(opts.key);
+        try { BL.Config && BL.Config.auth && (BL.Config.auth.key = AUTH_KEY); } catch (_) { }
+      }
+      if (opts && typeof opts.authJson === 'string' && opts.authJson) {
+        AUTH_JSON = String(opts.authJson);
+        try { BL.Config && BL.Config.auth && (BL.Config.auth.authJson = AUTH_JSON); } catch (_) { }
+      }
     } catch (_) { }
 
     startPromise = new Promise(function (resolve) {

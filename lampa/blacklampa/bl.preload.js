@@ -4,8 +4,11 @@
   var BL = window.BL = window.BL || {};
   BL.Preload = BL.Preload || {};
 
-  var FLAG = 'msx_preload_applied_v1';
-  var FALLBACK_KEY = 'msx_preload_json_v1';
+  // Single source of truth: BL.Config.preload.*
+  var preloadCfg = (BL.Config && BL.Config.preload) ? BL.Config.preload : {};
+  var FLAG = String(preloadCfg.appliedFlagKey || '');
+  var FALLBACK_KEY = String(preloadCfg.fallbackJsonKey || '');
+  var PRELOAD_JSON_FILE = String(preloadCfg.jsonFile || '');
 
   function lsGet(k) { try { return localStorage.getItem(k); } catch (_) { return null; } }
   function lsSet(k, v) { try { localStorage.setItem(k, String(v)); } catch (_) { } }
@@ -78,9 +81,9 @@
 
   function resolveJsonUrl(base) {
     try {
-      return String(new URL('bl.preload.json', base || location.href).href);
+      return String(new URL(String(PRELOAD_JSON_FILE || ''), base || location.href).href);
     } catch (_) {
-      return 'bl.preload.json';
+      return String(PRELOAD_JSON_FILE || '');
     }
   }
 
