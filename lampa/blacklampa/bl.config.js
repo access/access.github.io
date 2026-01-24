@@ -32,7 +32,7 @@
   var storage = ensureObj(cfg, 'storage');
 
   // UI (popup logger)
-  setDefault(ui, 'popupMs', 8000);
+  setDefault(ui, 'popupMs', 5000);
   setDefault(ui, 'popupZIndex', 2147483647);
   setDefault(ui, 'popupInsetPx', 5);
   setDefault(ui, 'popupBorderRadiusPx', 12);
