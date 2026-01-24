@@ -13,8 +13,9 @@
     "reloadDelaySec": 0
   },
   "plugins": [
-    { "url": "https://bywolf88.github.io/lampa-plugins/interface_mod.js", "title": "interface_mod.js", "desc": "", "tags": ["ui"] },
     { "url": "scripts/rating.js", "title": "rating.js", "desc": "", "tags": ["stats", "ui"] },
+    { "url": "scripts/store.js", "title": "rating.js", "desc": "", "tags": ["stats", "ui"] },
+    { "url": "https://bywolf88.github.io/lampa-plugins/interface_mod.js", "title": "interface_mod.js", "desc": "", "tags": ["ui"] },
     { "url": "https://and7ey.github.io/lampa/head_filter.js", "title": "head_filter.js", "desc": "", "tags": ["ui"] },
     { "url": "https://and7ey.github.io/lampa/noshots.js", "title": "noshots.js", "desc": "", "tags": ["ui", "tricks"] },
     { "url": "https://bylampa.github.io/seas_and_eps.js", "title": "seas_and_eps.js", "desc": "", "tags": ["ui"] },
@@ -25,11 +26,11 @@
     { "url": "https://lampa.stream/modss", "title": "modss", "desc": "", "tags": ["store"] },
     { "url": "https://bwa.to/cloud.js", "title": "cloud.js", "desc": "", "tags": ["cloud"] },
     { "url": "https://skaztv.online/store.js", "title": "store.js", "desc": "", "tags": ["store"] },
-    { "url": "https://skaztv.online/js/tricks.js", "title": "tricks.js", "desc": "", "tags": ["tricks"] },
     { "url": "https://amikdn.github.io/buttons.js", "title": "buttons.js", "desc": "", "tags": ["ui"] },
     { "url": "https://aviamovie.github.io/surs.js", "title": "surs.js", "desc": "", "tags": ["sources"] }
   ],
   "disabled": [
+    { "url": "https://skaztv.online/store.js", "title": "store.js", "desc": "", "tags": ["store"] },
     { "url": "https://bdvburik.github.io/title.js", "title": "title.js", "desc": "", "reason": "commented in source list", "tags": ["ui"], "since": 0 },
     { "url": "http://skaz.tv/onlines.js", "title": "onlines.js", "desc": "", "reason": "commented in source list", "tags": ["sources"], "since": 0 },
     { "url": "http://skaz.tv/vcdn.js", "title": "vcdn.js", "desc": "", "reason": "commented in source list", "tags": ["sources", "cloud"], "since": 0 },
