@@ -23,7 +23,7 @@
         if (e.name == 'main') {
             e.body.find('[data-component="pirate_store"]').on('hover:enter', function () {
                 Lampa.Extensions.show({
-                    store: 'extensions.json',
+                    store: 'store.extensions.json',
                     with_installed: true
                 });
             });
