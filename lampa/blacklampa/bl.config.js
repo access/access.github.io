@@ -32,7 +32,7 @@
   var storage = ensureObj(cfg, 'storage');
 
   // UI (popup logger)
-  setDefault(ui, 'popupMs', 20000);
+  setDefault(ui, 'popupMs', 8000);
   setDefault(ui, 'popupZIndex', 2147483647);
   setDefault(ui, 'popupInsetPx', 5);
   setDefault(ui, 'popupBorderRadiusPx', 12);
@@ -62,7 +62,7 @@
 
   // AutoPlugin
   setDefault(autoplugin, 'jsonFile', 'bl.autoplugin.json');
-  setDefault(autoplugin, 'doneFallbackMs', 90000);
+  setDefault(autoplugin, 'doneFallbackMs', 30000);
   var apFlags = ensureObj(autoplugin, 'flags');
   setDefault(apFlags, 'done', 'ap_installer_done_v1');
   setDefault(apFlags, 'sig', 'ap_installer_sig_v1');
