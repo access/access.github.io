@@ -421,19 +421,22 @@
     appendPopupLine(line, tag);
   }
 
-  function consoleMirror(tag, line) {
+  function consoleMirror(tag, line, force) {
     try {
-      if (LOG_MODE === 0) return;
+      if (!force && LOG_MODE === 0) return;
+
+      var c = console;
+      var logFn = (c && c.log) ? c.log : null;
 
       var fn = null;
-      if (tag === 'ERR') fn = (console && console.error) ? console.error : null;
-      else if (tag === 'WRN') fn = (console && console.warn) ? console.warn : null;
-      else if (tag === 'INF') fn = (console && console.info) ? console.info : null;
-      else if (tag === 'DBG') fn = (console && console.debug) ? console.debug : null;
-      else fn = (console && console.log) ? console.log : null;
+      if (tag === 'ERR') fn = (c && c.error) ? c.error : logFn;
+      else if (tag === 'WRN') fn = (c && c.warn) ? c.warn : logFn;
+      else if (tag === 'INF') fn = (c && c.info) ? c.info : logFn;
+      else if (tag === 'DBG') fn = (c && c.debug) ? c.debug : logFn;
+      else fn = logFn;
 
       if (!fn) return;
-      fn.call(console, String(line));
+      fn.call(c, String(line));
     } catch (_) { }
   }
 
@@ -515,4 +518,12 @@
   BL.Log.showOk = function (source, message, extra) { showLine('OK', source, message, extra); };
   BL.Log.showInfo = function (source, message, extra) { showLine('INF', source, message, extra); };
   BL.Log.showDbg = function (source, message, extra) { showLine('DBG', source, message, extra); };
+
+  // Raw log line output:
+  // Used by low-level hooks (e.g. network policy) that must preserve an exact pre-formatted line.
+  // Popup output respects LOG_MODE, but console output can be forced (mandatory warnings).
+  BL.Log.raw = function (tag, line) {
+    try { consoleMirror(tag, line, true); } catch (_) { }
+    try { pushPopupLine(line, tag); } catch (_) { }
+  };
 })();

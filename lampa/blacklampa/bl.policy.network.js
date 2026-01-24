@@ -1,13 +1,14 @@
 (function () {
-  'use strict';
+	  'use strict';
 
-  var BL = window.BL = window.BL || {};
-  BL.PolicyNetwork = BL.PolicyNetwork || {};
+	  var BL = window.BL = window.BL || {};
+	  BL.Net = BL.Net || {};
+	  BL.PolicyNetwork = BL.PolicyNetwork || {};
 
-  function logCall(log, method, source, message, extra) {
-    try {
-      if (!log) return;
-      var fn = log[method];
+	  function logCall(log, method, source, message, extra) {
+	    try {
+	      if (!log) return;
+	      var fn = log[method];
       if (typeof fn === 'function') fn.call(log, source, message, extra);
     } catch (_) { }
   }
@@ -70,17 +71,249 @@
       return classifyBlocked(url);
     } catch (_) {
       return null;
-    }
-  }
+	    }
+	  }
 
-  function logBlocked(u, where, why, log) {
-    var label = (why || 'Blocked');
-    var extra = String(where) + ' | ' + String(u);
-    if (log) logCall(log, 'showWarn', 'Net', 'BLOCKED (' + label + ')', extra);
-    else {
-      try { console.warn('[BlackLampa] WRN Net: BLOCKED (' + label + ') | ' + extra); } catch (_) { }
-    }
-  }
+	  // ============================================================================
+	  // Unified blocking model:
+	  //   block => fake "OK" response + mandatory WRN log
+	  // ============================================================================
+	  function normalizeUrlString(u) { try { return String(u || ''); } catch (_) { return ''; } }
+
+	  function guessFakePayload(context) {
+	    context = context || {};
+	    var urlStr = normalizeUrlString(context.url);
+	    var reason = String(context.reason || '');
+
+	    var contentType = 'text/plain; charset=utf-8';
+	    var bodyText = '';
+
+	    try {
+	      var url = new URL(urlStr, location.href);
+	      var path = String(url.pathname || '').toLowerCase();
+
+	      var isJson = (path.lastIndexOf('.json') === (path.length - 5));
+	      var isJs = (path.lastIndexOf('.js') === (path.length - 3)) || (path.lastIndexOf('.mjs') === (path.length - 4));
+	      var isCss = (path.lastIndexOf('.css') === (path.length - 4));
+	      var isHtml = (path.lastIndexOf('.html') === (path.length - 5)) || (path.lastIndexOf('.htm') === (path.length - 4));
+
+	      var ext = '';
+	      try {
+	        var dot = path.lastIndexOf('.');
+	        if (dot >= 0) ext = path.slice(dot + 1);
+	      } catch (_) { ext = ''; }
+
+	      var isPng = ext === 'png';
+	      var isJpg = ext === 'jpg' || ext === 'jpeg';
+	      var isGif = ext === 'gif';
+	      var isWebp = ext === 'webp';
+	      var isSvg = ext === 'svg';
+	      var isIco = ext === 'ico';
+
+	      if (isJson || /blacklist/i.test(path) || String(reason).indexOf('CUB:blacklist') === 0) {
+	        contentType = 'application/json; charset=utf-8';
+	        bodyText = (/blacklist/i.test(path) || String(reason).indexOf('CUB:blacklist') === 0) ? '[]' : '{}';
+	      } else if (isJs) {
+	        contentType = 'application/javascript; charset=utf-8';
+	        bodyText = '';
+	      } else if (isCss) {
+	        contentType = 'text/css; charset=utf-8';
+	        bodyText = '';
+	      } else if (isHtml) {
+	        contentType = 'text/html; charset=utf-8';
+	        bodyText = '';
+	      } else if (isSvg) {
+	        contentType = 'image/svg+xml; charset=utf-8';
+	        bodyText = '<svg xmlns="http://www.w3.org/2000/svg"></svg>';
+	      } else if (isPng) {
+	        contentType = 'image/png';
+	        bodyText = '';
+	      } else if (isJpg) {
+	        contentType = 'image/jpeg';
+	        bodyText = '';
+	      } else if (isGif) {
+	        contentType = 'image/gif';
+	        bodyText = '';
+	      } else if (isWebp) {
+	        contentType = 'image/webp';
+	        bodyText = '';
+	      } else if (isIco) {
+	        contentType = 'image/x-icon';
+	        bodyText = '';
+	      } else {
+	        contentType = 'text/plain; charset=utf-8';
+	        bodyText = '';
+	      }
+	    } catch (_) { }
+
+	    return { contentType: contentType, bodyText: bodyText, url: urlStr };
+	  }
+
+	  function makeEventSafe(type) {
+	    try { return new Event(type); } catch (_) { }
+	    try {
+	      var e = document.createEvent('Event');
+	      e.initEvent(type, false, false);
+	      return e;
+	    } catch (_) { }
+	    return null;
+	  }
+
+	  BL.Net.logBlocked = BL.Net.logBlocked || function (context) {
+	    try {
+	      context = context || {};
+	      var u = normalizeUrlString(context.url);
+	      var t = String(context.type || '');
+	      var r = String(context.reason || '');
+	      var line = '[BlackLampa][NET][BLOCK][' + t + '] ' + r + ' ' + u;
+
+	      // Prefer popup logger (and its console mirror) when available.
+	      try {
+	        if (BL.Log && typeof BL.Log.raw === 'function') {
+	          BL.Log.raw('WRN', line);
+	          return;
+	        }
+	      } catch (_) { }
+
+	      try { if (console && console.warn) return console.warn(line); } catch (_) { }
+	      try { if (console && console.log) return console.log(line); } catch (_) { }
+	    } catch (_) { }
+	  };
+
+	  function makeFetchResponse(payload) {
+	    var bodyText = String(payload.bodyText || '');
+	    var contentType = String(payload.contentType || 'text/plain; charset=utf-8');
+	    var url = normalizeUrlString(payload.url);
+
+	    try {
+	      if (typeof Response === 'function') {
+	        return new Response(bodyText, { status: 200, headers: { 'Content-Type': contentType } });
+	      }
+	    } catch (_) { }
+
+	    return {
+	      ok: true,
+	      status: 200,
+	      statusText: 'OK',
+	      url: url,
+	      headers: {
+	        get: function (k) {
+	          try {
+	            if (!k) return null;
+	            return (/content-type/i.test(String(k))) ? contentType : null;
+	          } catch (_) { return null; }
+	        }
+	      },
+	      text: function () { return Promise.resolve(bodyText); },
+	      json: function () {
+	        try { return Promise.resolve(JSON.parse(bodyText || '{}')); }
+	        catch (_) { return Promise.resolve(null); }
+	      },
+	      clone: function () { return makeFetchResponse(payload); }
+	    };
+	  }
+
+	  function applyFakeOkToXhr(xhr, payload) {
+	    try {
+	      var bodyText = String(payload.bodyText || '');
+	      var contentType = String(payload.contentType || '');
+	      var url = normalizeUrlString(payload.url);
+
+	      try { Object.defineProperty(xhr, 'readyState', { value: 4, configurable: true }); } catch (_) { }
+	      try { Object.defineProperty(xhr, 'status', { value: 200, configurable: true }); } catch (_) { }
+	      try { Object.defineProperty(xhr, 'statusText', { value: 'OK', configurable: true }); } catch (_) { }
+	      try { Object.defineProperty(xhr, 'responseURL', { value: url, configurable: true }); } catch (_) { }
+
+	      var respVal = bodyText;
+	      try {
+	        if (xhr && xhr.responseType === 'json') respVal = JSON.parse(bodyText || 'null');
+	      } catch (_) { respVal = null; }
+
+	      try { Object.defineProperty(xhr, 'responseText', { value: bodyText, configurable: true }); } catch (_) { }
+	      try { Object.defineProperty(xhr, 'response', { value: respVal, configurable: true }); } catch (_) { }
+
+	      // Best-effort header getter.
+	      try {
+	        if (typeof xhr.getResponseHeader !== 'function') {
+	          xhr.getResponseHeader = function (k) {
+	            try {
+	              if (!k) return null;
+	              return (/content-type/i.test(String(k))) ? contentType : null;
+	            } catch (_) { return null; }
+	          };
+	        }
+	      } catch (_) { }
+
+	      try { if (xhr.onreadystatechange) xhr.onreadystatechange(); } catch (_) { }
+	      try { if (xhr.onload) xhr.onload(); } catch (_) { }
+
+	      try {
+	        if (xhr.dispatchEvent) {
+	          var e1 = makeEventSafe('readystatechange');
+	          if (e1) xhr.dispatchEvent(e1);
+	          var e2 = makeEventSafe('load');
+	          if (e2) xhr.dispatchEvent(e2);
+	        }
+	      } catch (_) { }
+	    } catch (_) { }
+	  }
+
+	  function makeFakeWebSocket(url, why) {
+	    var ws = null;
+	    try { ws = Object.create(window.WebSocket && window.WebSocket.prototype ? window.WebSocket.prototype : {}); }
+	    catch (_) { ws = {}; }
+
+	    try { ws.url = normalizeUrlString(url); } catch (_) { }
+	    try { ws.readyState = 3; } catch (_) { } // CLOSED
+	    try { ws.bufferedAmount = 0; } catch (_) { }
+	    try { ws.extensions = ''; } catch (_) { }
+	    try { ws.protocol = ''; } catch (_) { }
+	    try { ws.binaryType = 'blob'; } catch (_) { }
+
+	    ws.send = function () { };
+	    ws.close = function () { };
+	    ws.addEventListener = function () { };
+	    ws.removeEventListener = function () { };
+	    ws.dispatchEvent = function () { return false; };
+
+	    ws.onopen = null;
+	    ws.onmessage = null;
+	    ws.onerror = null;
+	    ws.onclose = null;
+
+	    setTimeout(function () {
+	      try {
+	        if (typeof ws.onclose === 'function') {
+	          ws.onclose({ type: 'close', code: 1000, reason: String(why || 'Blocked'), wasClean: true });
+	        }
+	      } catch (_) { }
+	    }, 0);
+
+	    return ws;
+	  }
+
+	  BL.Net.makeFakeOkResponse = BL.Net.makeFakeOkResponse || function (context) {
+	    context = context || {};
+	    var type = String(context.type || '');
+	    var payload = guessFakePayload(context);
+
+	    if (type === 'fetch') return makeFetchResponse(payload);
+	    if (type === 'xhr') {
+	      return {
+	        ok: true,
+	        status: 200,
+	        statusText: 'OK',
+	        url: payload.url,
+	        contentType: payload.contentType,
+	        bodyText: payload.bodyText,
+	        applyToXhr: function (xhr) { applyFakeOkToXhr(xhr, payload); }
+	      };
+	    }
+	    if (type === 'beacon') return true;
+	    if (type === 'ws') return makeFakeWebSocket(payload.url, context.reason);
+
+	    return { ok: true, status: 200, statusText: 'OK' };
+	  };
 
   // [ADDED] CUB blacklist override (return empty array)
   function isCubBlacklistUrl(u) {
@@ -95,27 +328,7 @@
     }
   }
 
-  function makeJsonEmptyResponseFetch() {
-    try {
-      if (typeof Response === 'function') {
-        return new Response('[]', {
-          status: 200,
-          headers: { 'Content-Type': 'application/json; charset=utf-8' }
-        });
-      }
-    } catch (_) { }
-    return {
-      ok: true,
-      status: 200,
-      statusText: 'OK',
-      headers: { get: function () { return 'application/json; charset=utf-8'; } },
-      text: function () { return Promise.resolve('[]'); },
-      json: function () { return Promise.resolve([]); },
-      clone: function () { return this; }
-    };
-  }
-
-  function install(log) {
+	  function install(log) {
     // idempotency guard (do not wrap fetch/xhr/ws twice)
     if (BL.PolicyNetwork.__installed) {
       logCall(log, 'showDbg', 'Policy', 'already installed', '');
@@ -123,24 +336,24 @@
     }
     BL.PolicyNetwork.__installed = true;
 
-    if (window.fetch) {
-      var origFetch = window.fetch.bind(window);
-      window.fetch = function (input, init) {
-        var u = (typeof input === 'string') ? input : (input && input.url) ? input.url : '';
+	    if (window.fetch) {
+	      var origFetch = window.fetch.bind(window);
+	      window.fetch = function (input, init) {
+	        var u = (typeof input === 'string') ? input : (input && input.url) ? input.url : '';
 
-        if (isCubBlacklistUrl(u)) {
-          logCall(log, 'showOk', 'CUB', 'blacklist overridden', 'fetch | ' + String(u));
-          return Promise.resolve(makeJsonEmptyResponseFetch());
-        }
+	        if (isCubBlacklistUrl(u)) {
+	          logCall(log, 'showOk', 'CUB', 'blacklist overridden', 'fetch | ' + String(u));
+	          return Promise.resolve(BL.Net.makeFakeOkResponse({ url: u, type: 'fetch', reason: 'CUB:blacklist' }));
+	        }
 
-        var why = isBlockedUrl(u);
-        if (why) {
-          logBlocked(u, 'fetch', why, log);
-          return Promise.reject(new TypeError('Blocked by policy: ' + why));
-        }
-        return origFetch(input, init);
-      };
-    }
+	        var why = isBlockedUrl(u);
+	        if (why) {
+	          BL.Net.logBlocked({ url: u, type: 'fetch', reason: why });
+	          return Promise.resolve(BL.Net.makeFakeOkResponse({ url: u, type: 'fetch', reason: why }));
+	        }
+	        return origFetch(input, init);
+	      };
+	    }
 
     if (window.XMLHttpRequest) {
       var XHR = window.XMLHttpRequest;
@@ -154,74 +367,63 @@
         return origOpen.apply(this, arguments);
       };
 
-      XHR.prototype.send = function () {
-        if (this.__ap_mock_cub_blacklist) {
-          var xhr0 = this;
-          var u0 = this.__ap_url;
+	      XHR.prototype.send = function () {
+	        if (this.__ap_mock_cub_blacklist) {
+	          var xhr0 = this;
+	          var u0 = this.__ap_url;
 
-          setTimeout(function () {
-            try {
-              try { Object.defineProperty(xhr0, 'readyState', { value: 4, configurable: true }); } catch (_) { }
-              try { Object.defineProperty(xhr0, 'status', { value: 200, configurable: true }); } catch (_) { }
-              try { Object.defineProperty(xhr0, 'statusText', { value: 'OK', configurable: true }); } catch (_) { }
-              try { Object.defineProperty(xhr0, 'responseType', { value: '', configurable: true }); } catch (_) { }
+	          setTimeout(function () {
+	            try {
+	              logCall(log, 'showOk', 'CUB', 'blacklist overridden', 'XHR | ' + String(u0));
+	              var fake = BL.Net.makeFakeOkResponse({ url: u0, type: 'xhr', reason: 'CUB:blacklist' });
+	              if (fake && fake.applyToXhr) fake.applyToXhr(xhr0);
+	            } catch (_) { }
+	          }, 0);
+	          return;
+	        }
 
-              try { Object.defineProperty(xhr0, 'responseText', { value: '[]', configurable: true }); } catch (_) { }
-              try { Object.defineProperty(xhr0, 'response', { value: '[]', configurable: true }); } catch (_) { }
-              try { Object.defineProperty(xhr0, 'responseURL', { value: String(u0 || ''), configurable: true }); } catch (_) { }
+	        if (this.__ap_block_reason) {
+	          var u = this.__ap_url;
+	          var why = this.__ap_block_reason;
+	          BL.Net.logBlocked({ url: u, type: 'xhr', reason: why });
 
-              logCall(log, 'showOk', 'CUB', 'blacklist overridden', 'XHR | ' + String(u0));
+	          var xhr = this;
+	          setTimeout(function () {
+	            try {
+	              var fake = BL.Net.makeFakeOkResponse({ url: u, type: 'xhr', reason: why });
+	              if (fake && fake.applyToXhr) fake.applyToXhr(xhr);
+	            } catch (_) { }
+	          }, 0);
+	          return;
+	        }
+	        return origSend.apply(this, arguments);
+	      };
+	    }
 
-              try { if (xhr0.onreadystatechange) xhr0.onreadystatechange(); } catch (_) { }
-              try { if (xhr0.onload) xhr0.onload(); } catch (_) { }
-              try { if (xhr0.dispatchEvent) xhr0.dispatchEvent(new Event('readystatechange')); } catch (_) { }
-              try { if (xhr0.dispatchEvent) xhr0.dispatchEvent(new Event('load')); } catch (_) { }
-            } catch (_) { }
-          }, 0);
-          return;
-        }
+	    if (navigator.sendBeacon) {
+	      var origBeacon = navigator.sendBeacon.bind(navigator);
+	      navigator.sendBeacon = function (url, data) {
+	        var why = isBlockedUrl(url);
+	        if (why) {
+	          BL.Net.logBlocked({ url: url, type: 'beacon', reason: why });
+	          return !!BL.Net.makeFakeOkResponse({ url: url, type: 'beacon', reason: why });
+	        }
+	        return origBeacon(url, data);
+	      };
+	    }
 
-        if (this.__ap_block_reason) {
-          var u = this.__ap_url;
-          var why = this.__ap_block_reason;
-          logBlocked(u, 'XHR', why, log);
-
-          var xhr = this;
-          setTimeout(function () {
-            try { if (xhr.onerror) xhr.onerror(new Error('Blocked by policy: ' + why)); } catch (_) { }
-            try { if (xhr.onreadystatechange) xhr.onreadystatechange(); } catch (_) { }
-            try { if (xhr.dispatchEvent) xhr.dispatchEvent(new Event('error')); } catch (_) { }
-          }, 0);
-          return;
-        }
-        return origSend.apply(this, arguments);
-      };
-    }
-
-    if (navigator.sendBeacon) {
-      var origBeacon = navigator.sendBeacon.bind(navigator);
-      navigator.sendBeacon = function (url, data) {
-        var why = isBlockedUrl(url);
-        if (why) {
-          logBlocked(url, 'sendBeacon', why, log);
-          return false;
-        }
-        return origBeacon(url, data);
-      };
-    }
-
-    if (window.WebSocket) {
-      var OrigWS = window.WebSocket;
-      window.WebSocket = function (url, protocols) {
-        var why = isBlockedUrl(url);
-        if (why) {
-          logBlocked(url, 'WebSocket', why, log);
-          throw new Error('Blocked by policy: ' + why);
-        }
-        return (protocols !== undefined) ? new OrigWS(url, protocols) : new OrigWS(url);
-      };
-      window.WebSocket.prototype = OrigWS.prototype;
-    }
+	    if (window.WebSocket) {
+	      var OrigWS = window.WebSocket;
+	      window.WebSocket = function (url, protocols) {
+	        var why = isBlockedUrl(url);
+	        if (why) {
+	          BL.Net.logBlocked({ url: url, type: 'ws', reason: why });
+	          return BL.Net.makeFakeOkResponse({ url: url, type: 'ws', reason: why });
+	        }
+	        return (protocols !== undefined) ? new OrigWS(url, protocols) : new OrigWS(url);
+	      };
+	      window.WebSocket.prototype = OrigWS.prototype;
+	    }
 
     logCall(log, 'showOk', 'Policy', 'installed', 'Yandex + Google/YouTube + Statistics + BWA:CORS(/cors/check) + CUB:blacklist([])');
   }
