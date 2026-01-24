@@ -122,21 +122,11 @@
 	        'bl.ui.log.js',
 	        'bl.storage.guards.js',
 	        'bl.policy.network.js'
-	      ], function () {
-	        // Logger init (idempotent).
-	        try {
-	          if (BL.Log && BL.Log.init) {
-	            var cfg = BL.Config || {};
-	            var logCfg = cfg.log || {};
-	            var uiCfg = cfg.ui || {};
-	            BL.Log.init({
-	              defaultMode: logCfg.defaultMode,
-	              titlePrefix: logCfg.titlePrefix,
-	              popupMs: uiCfg.popupMs,
-	              maxLines: logCfg.maxLines
-	            });
-	          }
-	        } catch (_) { }
+		      ], function () {
+		        // Logger init (idempotent).
+		        try {
+		          if (BL.Log && BL.Log.init) BL.Log.init();
+		        } catch (_) { }
 
         // Install protection layers as early as possible.
         try { if (BL.PolicyNetwork && BL.PolicyNetwork.install) BL.PolicyNetwork.install(BL.Log); } catch (e1) { log('ERR', 'Policy', 'install failed', e1 && e1.message ? e1.message : e1); }
@@ -166,23 +156,27 @@
       ], function () {
         var p = Promise.resolve(true);
 
-	        if (BL.Preload && BL.Preload.apply) {
-	          p = p.then(function () {
-	            var cfg = BL.Config || {};
-	            var preloadCfg = cfg.preload || {};
-	            log('INF', 'Preload', 'apply', String(preloadCfg.jsonFile || ''));
-	            return BL.Preload.apply({ base: BL.ctx.base });
-	          });
-	        }
+		        if (BL.Preload && BL.Preload.apply) {
+		          p = p.then(function () {
+		            var cfg = null;
+		            try { cfg = (BL.Config && typeof BL.Config.get === 'function') ? BL.Config.get() : BL.Config; } catch (_) { cfg = BL.Config; }
+		            cfg = cfg || {};
+		            var preloadCfg = cfg.preload || {};
+		            log('INF', 'Preload', 'apply', String(preloadCfg.jsonFile || ''));
+		            return BL.Preload.apply({ base: BL.ctx.base });
+		          });
+		        }
 
-	        if (BL.Autoplugin && BL.Autoplugin.start) {
-	          p = p.then(function () {
-	            var cfg = BL.Config || {};
-	            var apCfg = cfg.autoplugin || {};
-	            log('INF', 'AutoPlugin', 'start', String(apCfg.jsonFile || ''));
-	            return BL.Autoplugin.start({ base: BL.ctx.base });
-	          });
-	        }
+		        if (BL.Autoplugin && BL.Autoplugin.start) {
+		          p = p.then(function () {
+		            var cfg = null;
+		            try { cfg = (BL.Config && typeof BL.Config.get === 'function') ? BL.Config.get() : BL.Config; } catch (_) { cfg = BL.Config; }
+		            cfg = cfg || {};
+		            var apCfg = cfg.autoplugin || {};
+		            log('INF', 'AutoPlugin', 'start', String(apCfg.jsonFile || ''));
+		            return BL.Autoplugin.start({ base: BL.ctx.base });
+		          });
+		        }
 
         p.then(function () {
           log('OK', 'Boot', 'phase1 done', '');
@@ -219,7 +213,9 @@
 
 	          // Auth allow-list is read from a fixed path inside BlackLampa.
 	          // Any "user" activity (PHASE 1) must remain strictly gated by successful auth.
-	          var cfg = BL.Config || {};
+	          var cfg = null;
+	          try { cfg = (BL.Config && typeof BL.Config.get === 'function') ? BL.Config.get() : BL.Config; } catch (_) { cfg = BL.Config; }
+	          cfg = cfg || {};
 	          var authCfg = cfg.auth || {};
 	          BL.Auth.start({ authJson: String(authCfg.authJson || '') }).then(function () {
 	            log('OK', 'Auth', 'ok', 'unlocked');

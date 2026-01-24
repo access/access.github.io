@@ -8,10 +8,14 @@
   // CONFIG
   // =========================
   // Single source of truth: BL.Config.auth.*
-  var AUTH_KEY = String((BL.Config && BL.Config.auth && BL.Config.auth.key) || '');
+  var cfg = null;
+  try { cfg = (BL.Config && typeof BL.Config.get === 'function') ? BL.Config.get() : BL.Config; } catch (_) { cfg = BL.Config; }
+  cfg = cfg || {};
+  var authCfg = cfg.auth || {};
+  var AUTH_KEY = String(authCfg.key || '');
   // `bl.auth.json` is the only source of BlackLampa auth configuration.
   // Intentionally fixed to a single file name/path to keep the subsystem self-contained.
-  var AUTH_JSON = String((BL.Config && BL.Config.auth && BL.Config.auth.authJson) || '');
+  var AUTH_JSON = String(authCfg.authJson || '');
 
   // =========================
   // STORAGE (Lampa)
@@ -464,11 +468,25 @@
     try {
       if (opts && typeof opts.key === 'string' && opts.key) {
         AUTH_KEY = String(opts.key);
-        try { BL.Config && BL.Config.auth && (BL.Config.auth.key = AUTH_KEY); } catch (_) { }
+        try {
+          var c1 = null;
+          try { c1 = (BL.Config && typeof BL.Config.get === 'function') ? BL.Config.get() : BL.Config; } catch (_) { c1 = BL.Config; }
+          if (c1) {
+            c1.auth = c1.auth || {};
+            c1.auth.key = AUTH_KEY;
+          }
+        } catch (_) { }
       }
       if (opts && typeof opts.authJson === 'string' && opts.authJson) {
         AUTH_JSON = String(opts.authJson);
-        try { BL.Config && BL.Config.auth && (BL.Config.auth.authJson = AUTH_JSON); } catch (_) { }
+        try {
+          var c2 = null;
+          try { c2 = (BL.Config && typeof BL.Config.get === 'function') ? BL.Config.get() : BL.Config; } catch (_) { c2 = BL.Config; }
+          if (c2) {
+            c2.auth = c2.auth || {};
+            c2.auth.authJson = AUTH_JSON;
+          }
+        } catch (_) { }
       }
     } catch (_) { }
 

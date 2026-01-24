@@ -23,7 +23,9 @@
   }
 
   function configUrl(base) {
-    var cfg = BL.Config || {};
+    var cfg = null;
+    try { cfg = (BL.Config && typeof BL.Config.get === 'function') ? BL.Config.get() : BL.Config; } catch (_) { cfg = BL.Config; }
+    cfg = cfg || {};
     var apCfg = cfg.autoplugin || {};
     var file = String(apCfg.jsonFile || '');
     try { return String(new URL(file, base || location.href).href); } catch (_) { return file; }
@@ -67,7 +69,9 @@
       }
 
 	      function doneLaterFallback() {
-	        var cfg = BL.Config || {};
+	        var cfg = null;
+	        try { cfg = (BL.Config && typeof BL.Config.get === 'function') ? BL.Config.get() : BL.Config; } catch (_) { cfg = BL.Config; }
+	        cfg = cfg || {};
 	        var apCfg = cfg.autoplugin || {};
 	        var ms = (typeof apCfg.doneFallbackMs === 'number') ? apCfg.doneFallbackMs : 0;
 	        if (ms > 0) setTimeout(function () { doneSafe(); }, ms);
@@ -78,7 +82,9 @@
 
 	        var cfgOpts = cfg.options || {};
 
-	        var cfgAll = BL.Config || {};
+	        var cfgAll = null;
+	        try { cfgAll = (BL.Config && typeof BL.Config.get === 'function') ? BL.Config.get() : BL.Config; } catch (_) { cfgAll = BL.Config; }
+	        cfgAll = cfgAll || {};
 	        var logCfg = cfgAll.log || {};
 	        var defaultMode0 = (typeof logCfg.defaultMode === 'number') ? logCfg.defaultMode : 0;
 	        var DEFAULT_LOG_MODE = toInt(pickOption(cfgOpts, 'defaultLogMode', defaultMode0), defaultMode0);
@@ -86,12 +92,19 @@
 	        var INJECT_NEWLY_INSTALLED = !!pickOption(cfgOpts, 'injectNewlyInstalled', true);
         // Auto-reload disabled intentionally (BlackLampa policy).
         // The page must never be reloaded automatically after installs/resets/reinit.
-        var RELOAD_AFTER_FIRST_INSTALL = false;
-        var RELOAD_DELAY_SEC = 0;
+	        var RELOAD_AFTER_FIRST_INSTALL = false;
+	        var RELOAD_DELAY_SEC = 0;
 
 	        safe(function () {
-	          try { BL.Config && BL.Config.log && (BL.Config.log.defaultMode = DEFAULT_LOG_MODE); } catch (_) { }
-	          if (BL.Log && BL.Log.init) BL.Log.init({ defaultMode: DEFAULT_LOG_MODE });
+	          try {
+	            var c = null;
+	            try { c = (BL.Config && typeof BL.Config.get === 'function') ? BL.Config.get() : BL.Config; } catch (_) { c = BL.Config; }
+	            if (c) {
+	              c.log = c.log || {};
+	              c.log.defaultMode = DEFAULT_LOG_MODE;
+	            }
+	          } catch (_) { }
+	          if (BL.Log && BL.Log.init) BL.Log.init();
 	        });
 
         var LOG_MODE = safe(function () { return BL.Log && BL.Log.mode ? BL.Log.mode() : 0; }) || 0;
@@ -119,7 +132,9 @@
 	        // ============================================================================
 	        // ONE-TIME INSTALL FLAGS
 	        // ============================================================================
-	        var cfgAll2 = BL.Config || {};
+	        var cfgAll2 = null;
+	        try { cfgAll2 = (BL.Config && typeof BL.Config.get === 'function') ? BL.Config.get() : BL.Config; } catch (_) { cfgAll2 = BL.Config; }
+	        cfgAll2 = cfgAll2 || {};
 	        var apCfg2 = cfgAll2.autoplugin || {};
 	        var apFlags2 = apCfg2.flags || {};
 	        var AP_KEYS = {
@@ -209,8 +224,8 @@
 
         function refreshInstallerSettingsUi() {
           try {
-            if (!window.Lampa || !Lampa.SettingsApi) return;
-            initInstallerSettings();
+            if (!window.Lampa) return;
+            // Refresh visuals only; do not rebuild components here (safe for TV navigation).
             try { if (Lampa.Settings && Lampa.Settings.update) Lampa.Settings.update(); } catch (_) { }
           } catch (_) { }
         }
@@ -235,15 +250,12 @@
           } catch (_) { }
         }
 
-        // Build managed urls list from config: plugins[] + disabled[] (lossless).
+        // Build managed urls list from config: active plugins[] only.
+        // IMPORTANT: disabled[] are "additional" plugins and must be managed manually via Settings.
 	        (function () {
 	          try {
 	            var p = cfg.plugins;
 	            if (Array.isArray(p)) for (var i = 0; i < p.length; i++) addManagedUrl(getPluginUrl(p[i]));
-	          } catch (_) { }
-	          try {
-	            var d = cfg.disabled;
-	            if (Array.isArray(d)) for (var j = 0; j < d.length; j++) addManagedUrl(getPluginUrl(d[j]));
 	          } catch (_) { }
 	        })();
 
@@ -476,18 +488,53 @@
           try {
             if (!window.Lampa || !Lampa.SettingsApi) return;
 
+            // Component ids are configured via BL.Config (single source of truth).
+            var blCfg = null;
+            try { blCfg = (BL.Config && typeof BL.Config.get === 'function') ? BL.Config.get() : BL.Config; } catch (_) { blCfg = BL.Config; }
+            blCfg = blCfg || {};
+            var apUi = (blCfg.autoplugin && blCfg.autoplugin.settings) ? blCfg.autoplugin.settings : {};
+            var MAIN_COMPONENT = String(apUi.componentId || 'bl_autoplugin');
+            var EXTRAS_COMPONENT = String(apUi.extrasComponentId || 'bl_autoplugin_extras');
+            var EXTRA_PLUGIN_PREFIX = String(apUi.extraPluginComponentPrefix || 'bl_autoplugin_extras_plugin_');
+
+            function removeComponentSafe(id) {
+              try {
+                if (!id) return;
+                if (Lampa.SettingsApi.removeComponent) Lampa.SettingsApi.removeComponent(String(id));
+              } catch (_) { }
+            }
+
             try {
-              if (Lampa.SettingsApi.removeComponent) {
-                // remove legacy component id if it was used before
-                try { Lampa.SettingsApi.removeComponent('autoplugin_installer'); } catch (_) { }
-                Lampa.SettingsApi.removeComponent('bl_autoplugin');
-              }
+              // remove legacy component id if it was used before
+              removeComponentSafe('autoplugin_installer');
+              // remove previous ids to keep the ordered menu stable
+              removeComponentSafe('bl_autoplugin');
+              removeComponentSafe('bl_autoplugin_extras');
+              removeComponentSafe(MAIN_COMPONENT);
+              removeComponentSafe(EXTRAS_COMPONENT);
             } catch (_) { }
 
             Lampa.SettingsApi.addComponent({
-              component: 'bl_autoplugin',
+              component: MAIN_COMPONENT,
               name: 'AutoPlugin Installer',
               icon: '<svg width="24" height="24" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M12 2a10 10 0 100 20 10 10 0 000-20zm1 14.5h-2v-2h2v2zm0-4h-2V6h2v6.5z" fill="currentColor"/></svg>'
+            });
+
+            // Extras submenu component (will be opened from the main component).
+            try {
+              Lampa.SettingsApi.addComponent({
+                component: EXTRAS_COMPONENT,
+                name: 'Дополнительные плагины',
+                icon: '<svg width="24" height="24" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M12 2a10 10 0 100 20 10 10 0 000-20zm1 14.5h-2v-2h2v2zm0-4h-2V6h2v6.5z" fill="currentColor"/></svg>'
+              });
+            } catch (_) { }
+
+            // Hide submenu components from the root settings list (navigation goes through "static folder" items).
+            safe(function () {
+              if (!window.$) return;
+              setTimeout(function () {
+                try { $('div[data-component="' + String(EXTRAS_COMPONENT) + '"]').remove(); } catch (_) { }
+              }, 0);
             });
 
             // Confirm dialog helper (TV/PC/mobile safe).
@@ -552,339 +599,343 @@
 	                  refreshInstallerSettingsUi();
 	                }, 0);
 	              });
-	            }
+		            }
 
-	            // ============================================================================
-	            // AutoPlugin Installer menu (ordered)
-	            //
-	            // A) Information
-	            // B) Actions (safe / manual)
-	            // C) Maintenance (dangerous)
-	            // ============================================================================
+		            // ============================================================================
+		            // AutoPlugin Installer menu (ordered, with submenus)
+		            // Order (top -> bottom):
+		            // 1) Переинициализация (reset first-install flags)
+		            // 2) Сброс Lampa до заводских (factory reset)
+		            // 3) Удалить все плагины Lampa
+		            // 4) Удалить плагины AutoPlugin Installer (active plugins[] only)
+		            // 5) Дополнительные плагины (submenu)
+		            // X) Статус (last)
 
-	            // A) Information: human help + raw status
-	            try {
-	              var statusHelp = getStatusHelpString();
-	              Lampa.SettingsApi.addParam({
-	                component: 'bl_autoplugin',
-	                param: { name: 'ap_info_help', type: 'static', values: statusHelp, default: statusHelp },
-	                field: { name: 'Статус', description: statusHelp }
-	              });
-	            } catch (_) { }
+		            function openComponent(id, backId) {
+		              try {
+		                if (!window.Lampa || !Lampa.Settings || !Lampa.Settings.create) return;
+		                Lampa.Settings.create(String(id));
+		                if (!backId) return;
+		                if (!Lampa.Controller || !Lampa.Controller.enabled) return;
+		                Lampa.Controller.enabled().controller.back = function () {
+		                  try { Lampa.Settings.create(String(backId)); } catch (_) { }
+		                };
+		              } catch (_) { }
+		            }
 
-	            try {
-	              var statusRaw = getStatusInfoString();
-	              Lampa.SettingsApi.addParam({
-	                component: 'bl_autoplugin',
-	                param: { name: 'ap_info_raw', type: 'static', values: statusRaw, default: statusRaw },
-	                field: { name: 'Статус (raw)', description: statusRaw }
-	              });
-	            } catch (_) { }
+		            function openExtrasMenu() {
+		              openComponent(EXTRAS_COMPONENT, MAIN_COMPONENT);
+		            }
 
-	            // B) Actions: additional (disabled[]) plugins, installed manually.
-	            try {
-	              Lampa.SettingsApi.addParam({
-	                component: 'bl_autoplugin',
-	                param: { name: 'ap_extra_header', type: 'static', values: '', default: '' },
-	                field: {
-	                  name: 'Дополнительные плагины',
-	                  description: 'Ручная установка плагинов из списка (disabled). Некоторые плагины меняют настройки Lampa (см. описание).'
-	                }
-	              });
-	            } catch (_) { }
+		            function extraMeta(raw) {
+		              try {
+		                var url = getPluginUrl(raw);
+		                if (!url) return null;
+		                var urlAbs = absUrl(url);
 
-	            safe(function () {
-	              var disabled = cfg.disabled;
-	              if (!Array.isArray(disabled) || !disabled.length) return;
+		                var title = '';
+		                var desc = '';
+		                try { if (raw && typeof raw === 'object' && !Array.isArray(raw) && typeof raw.title === 'string') title = String(raw.title || ''); } catch (_) { title = ''; }
+		                try { if (raw && typeof raw === 'object' && !Array.isArray(raw) && typeof raw.desc === 'string') desc = String(raw.desc || ''); } catch (_) { desc = ''; }
 
-	              var installedNow = getInstalledPlugins();
+		                if (!title) title = guessName(urlAbs);
+		                if (!desc) desc = '(описание не задано)';
 
-	              for (var i = 0; i < disabled.length; i++) {
-	                (function (raw) {
-	                  var url = getPluginUrl(raw);
-	                  if (!url) return;
+		                var hash = djb2('extra|' + urlAbs);
+		                var componentId = String(EXTRA_PLUGIN_PREFIX) + String(hash);
+		                return { raw: raw, url: url, urlAbs: urlAbs, title: title, desc: desc, componentId: componentId, hash: hash };
+		              } catch (_) {
+		                return null;
+		              }
+		            }
 
-	                  var urlAbs = absUrl(url);
-	                  var name = '';
-	                  var desc = '';
-	                  var tags = [];
+		            function getInstalledState(urlAbs) {
+		              var list = getInstalledPlugins();
+		              var idx = findPluginIndexAny(list, urlAbs);
+		              var st = (idx >= 0 && list[idx] && typeof list[idx].status === 'number') ? list[idx].status : null;
+		              return { installed: idx >= 0, status: st };
+		            }
 
-	                  try { if (raw && typeof raw === 'object' && !Array.isArray(raw) && typeof raw.title === 'string') name = String(raw.title || ''); } catch (_) { name = ''; }
-	                  try { if (raw && typeof raw === 'object' && !Array.isArray(raw) && typeof raw.desc === 'string') desc = String(raw.desc || ''); } catch (_) { desc = ''; }
-	                  try { if (raw && typeof raw === 'object' && !Array.isArray(raw) && Array.isArray(raw.tags)) tags = raw.tags.slice(0); } catch (_) { tags = []; }
+		            function removeOnePlugin(urlAbs, title) {
+		              if (!window.Lampa || !Lampa.Storage || !Lampa.Storage.get || !Lampa.Storage.set) {
+		                showWarn('Settings', 'remove plugin', 'Lampa.Storage missing');
+		                return 0;
+		              }
 
-	                  if (!name) name = guessName(urlAbs);
-	                  if (!desc) desc = '(описание не задано)';
+		              var list = getInstalledPlugins();
+		              var kept = [];
+		              var removed = 0;
 
-	                  var values = { '0': '—', '1': 'Установить', '2': 'Удалить', '3': 'Показать URL' };
-	                  if (LOG_MODE === 2) values['4'] = 'Показать в консоли (table)';
+		              for (var i = 0; i < list.length; i++) {
+		                var u = getPluginUrl(list[i]);
+		                var ua = '';
+		                try { ua = absUrl(u); } catch (_) { ua = String(u || ''); }
+		                if (u && (u === urlAbs || ua === urlAbs)) removed++;
+		                else kept.push(list[i]);
+		              }
 
-	                  var key = 'ap_extra_' + djb2('extra|' + urlAbs);
+		              if (removed) setInstalledPlugins(kept);
 
-	                  function isInstalledNow() {
-	                    var list = getInstalledPlugins();
-	                    var idx = findPluginIndexAny(list, urlAbs);
-	                    var st = (idx >= 0 && list[idx] && typeof list[idx].status === 'number') ? list[idx].status : null;
-	                    return { ok: (idx >= 0), status: st };
-	                  }
+		              if (removed) {
+		                showOk('Settings', 'plugin removed', title || urlAbs);
+		                try { if (Lampa.Noty && Lampa.Noty.show) Lampa.Noty.show('[[BlackLampa]] Плагин удалён: ' + String(title || urlAbs)); } catch (_) { }
+		              } else {
+		                showWarn('Settings', 'remove skip', title || urlAbs);
+		                try { if (Lampa.Noty && Lampa.Noty.show) Lampa.Noty.show('[[BlackLampa]] Плагин не установлен: ' + String(title || urlAbs)); } catch (_) { }
+		              }
 
-	                  function removeOne() {
-	                    var list = getInstalledPlugins();
-	                    var kept = [];
-	                    var removed = 0;
+		              return removed;
+		            }
 
-	                    for (var j = 0; j < list.length; j++) {
-	                      var u = getPluginUrl(list[j]);
-	                      var ua = '';
-	                      try { ua = absUrl(u); } catch (_) { ua = String(u || ''); }
-	                      if (u && (u === urlAbs || ua === urlAbs)) removed++;
-	                      else kept.push(list[j]);
-	                    }
+		            function openExtraPluginDetail(meta) {
+		              if (!meta || !meta.componentId) return;
+		              var cid = meta.componentId;
 
-	                    if (removed) setInstalledPlugins(kept);
+		              // (Re)build detail component each time it is opened to keep actions active/inactive.
+		              removeComponentSafe(cid);
 
-	                    if (removed) {
-	                      showOk('Settings', 'plugin removed', name);
-	                      try { if (Lampa.Noty && Lampa.Noty.show) Lampa.Noty.show('[[BlackLampa]] Плагин удалён: ' + name); } catch (_) { }
-	                    } else {
-	                      showWarn('Settings', 'remove skip', name);
-	                      try { if (Lampa.Noty && Lampa.Noty.show) Lampa.Noty.show('[[BlackLampa]] Плагин не установлен: ' + name); } catch (_) { }
-	                    }
-	                  }
+		              try {
+		                Lampa.SettingsApi.addComponent({
+		                  component: cid,
+		                  name: meta.title,
+		                  icon: '<svg width="24" height="24" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M12 2a10 10 0 100 20 10 10 0 000-20zm1 14.5h-2v-2h2v2zm0-4h-2V6h2v6.5z" fill="currentColor"/></svg>'
+		                });
+		              } catch (_) { }
 
-	                  Lampa.SettingsApi.addParam({
-	                    component: 'bl_autoplugin',
-	                    param: { name: key, type: 'select', values: values, default: '0' },
-	                    field: { name: name, description: desc },
-	                    onChange: function (value) {
-	                      var v = String(value);
-	                      if (v === '0') return;
+		              // Hide from root list (navigation is internal).
+		              safe(function () {
+		                if (!window.$) return;
+		                setTimeout(function () {
+		                  try { $('div[data-component="' + String(cid) + '"]').remove(); } catch (_) { }
+		                }, 0);
+		              });
 
-	                      if (v === '3') {
-	                        try { if (Lampa.Noty && Lampa.Noty.show) Lampa.Noty.show('[[BlackLampa]] URL: ' + urlAbs); } catch (_) { }
-	                        refreshInstallerSettingsUi();
-	                        return;
-	                      }
+		              var st = getInstalledState(meta.urlAbs);
 
-	                      if (v === '4') {
-	                        // Debug: table is allowed only in LOG_MODE=2.
-	                        if (LOG_MODE === 2 && BL.Console && BL.Console.table) {
-	                          BL.Console.table([{
-	                            title: name,
-	                            url: urlAbs,
-	                            tags: tags.join(','),
-	                            desc: desc
-	                          }]);
-	                        }
-	                        refreshInstallerSettingsUi();
-	                        return;
-	                      }
+		              // Info
+		              try {
+		                var info = String(meta.desc || '');
+		                if (info) info = info + '\n';
+		                info = info + String(meta.urlAbs);
+		                Lampa.SettingsApi.addParam({
+		                  component: cid,
+		                  param: { name: cid + '_info', type: 'static', values: info, default: info },
+		                  field: { name: meta.title, description: info }
+		                });
+		              } catch (_) { }
 
-	                      if (v === '1') {
-	                        // WHY: manual install from disabled[] must NOT reset first-install flags.
-	                        var st = isInstalledNow();
-	                        if (st.ok) {
-	                          try {
-	                            if (Lampa.Noty && Lampa.Noty.show) {
-	                              var hint = (st.status === 0) ? 'Плагин уже установлен, но отключён в расширениях.' : 'Плагин уже установлен.';
-	                              Lampa.Noty.show('[[BlackLampa]] ' + hint);
-	                            }
-	                          } catch (_) { }
-	                          refreshInstallerSettingsUi();
-	                          return;
-	                        }
-	
-	                        runOnce('Установить: ' + name, 'Установить плагин?\n\n' + name + '\n' + urlAbs, function () {
-	                          return ensureInstalledOne(urlAbs).then(function (r) {
-	                            if (r && r.ok) {
-	                              try { if (Lampa.Noty && Lampa.Noty.show) Lampa.Noty.show('[[BlackLampa]] Установлено: ' + name); } catch (_) { }
-	                            } else {
-	                              try { if (Lampa.Noty && Lampa.Noty.show) Lampa.Noty.show('[[BlackLampa]] Ошибка установки: ' + name); } catch (_) { }
-	                            }
-	                          });
-	                        });
-	                        return;
-	                      }
+		              // Action: install
+		              if (!st.installed) {
+		                try {
+		                  Lampa.SettingsApi.addParam({
+		                    component: cid,
+		                    param: { name: cid + '_install', type: 'button' },
+		                    field: { name: 'Установить', description: 'Добавляет плагин в расширения Lampa.' },
+		                    onChange: function () {
+		                      // WHY: manual install from disabled[] must NOT reset first-install flags.
+		                      runOnce('Установить: ' + meta.title, 'Установить плагин?\n\n' + meta.title + '\n' + meta.urlAbs, function () {
+		                        return ensureInstalledOne(meta.urlAbs).then(function (r) {
+		                          if (r && r.ok) {
+		                            try { if (Lampa.Noty && Lampa.Noty.show) Lampa.Noty.show('[[BlackLampa]] Установлено: ' + meta.title); } catch (_) { }
+		                          } else {
+		                            try { if (Lampa.Noty && Lampa.Noty.show) Lampa.Noty.show('[[BlackLampa]] Ошибка установки: ' + meta.title); } catch (_) { }
+		                          }
+		                          // Re-open to refresh action availability.
+		                          openExtraPluginDetail(meta);
+		                        });
+		                      });
+		                    }
+		                  });
+		                } catch (_) { }
+		              } else {
+		                try {
+		                  var note = (st.status === 0) ? 'Плагин уже установлен, но отключён в расширениях.' : 'Плагин уже установлен.';
+		                  Lampa.SettingsApi.addParam({
+		                    component: cid,
+		                    param: { name: cid + '_install_disabled', type: 'static', values: note, default: note },
+		                    field: { name: 'Установить', description: note }
+		                  });
+		                } catch (_) { }
+		              }
 
-	                      if (v === '2') {
-	                        // WHY: manual remove must NOT reset first-install flags.
-	                        var st2 = isInstalledNow();
-	                        if (!st2.ok) {
-	                          try { if (Lampa.Noty && Lampa.Noty.show) Lampa.Noty.show('[[BlackLampa]] Плагин не установлен: ' + name); } catch (_) { }
-	                          refreshInstallerSettingsUi();
-	                          return;
-	                        }
+		              // Action: remove
+		              if (st.installed) {
+		                try {
+		                  Lampa.SettingsApi.addParam({
+		                    component: cid,
+		                    param: { name: cid + '_remove', type: 'button' },
+		                    field: { name: 'Удалить', description: 'Удаляет плагин из расширений Lampa.' },
+		                    onChange: function () {
+		                      // WHY: manual remove must NOT reset first-install flags.
+		                      runOnce('Удалить: ' + meta.title, 'Удалить плагин?\n\n' + meta.title + '\n' + meta.urlAbs + '\n\nАвтоперезагрузка отключена. При необходимости перезапустите приложение вручную.', function () {
+		                        removeOnePlugin(meta.urlAbs, meta.title);
+		                        openExtraPluginDetail(meta);
+		                      });
+		                    }
+		                  });
+		                } catch (_) { }
+		              } else {
+		                try {
+		                  Lampa.SettingsApi.addParam({
+		                    component: cid,
+		                    param: { name: cid + '_remove_disabled', type: 'static', values: 'Плагин не установлен.', default: 'Плагин не установлен.' },
+		                    field: { name: 'Удалить', description: 'Плагин не установлен.' }
+		                  });
+		                } catch (_) { }
+		              }
 
-	                        runOnce('Удалить: ' + name, 'Удалить плагин?\n\n' + name + '\n' + urlAbs + '\n\nАвтоперезагрузка отключена. При необходимости перезапустите приложение вручную.', function () {
-	                          removeOne();
-	                        });
-	                        return;
-	                      }
-	                    },
-	                    onRender: function (item) {
-	                      try {
-	                        // Status indicator: active / disabled / not installed (like addon.js).
-	                        var idx = findPluginIndexAny(installedNow, urlAbs);
-	                        var status = (idx >= 0 && installedNow[idx] && typeof installedNow[idx].status === 'number') ? installedNow[idx].status : null;
-	                        if (!window.$ || !item) return;
-	                        setTimeout(function () {
-	                          try {
-	                            var $row = $('div[data-name="' + key + '"]');
-	                            if (!$row.length) return;
-	                            if ($row.find('.settings-param__status').length === 0) $row.append('<div class="settings-param__status one"></div>');
+		              openComponent(cid, EXTRAS_COMPONENT);
+		            }
 
-	                            var $st = $row.find('.settings-param__status');
-	                            if (idx >= 0 && status !== 0) $st.css('background-color', '').removeClass('active error').addClass('active');
-	                            else if (idx >= 0 && status === 0) $st.removeClass('active error').css('background-color', 'rgb(255, 165, 0)');
-	                            else $st.css('background-color', '').removeClass('active error').addClass('error');
-	                          } catch (_) { }
-	                        }, 0);
-	                      } catch (_) { }
-	                    }
-	                  });
-	                })(disabled[i]);
-	              }
-	            });
+		            // Build extras submenu list (disabled[]).
+		            try {
+		              var disabled = cfg.disabled;
+		              if (!Array.isArray(disabled) || !disabled.length) {
+		                var none = 'Нет дополнительных плагинов.';
+		                Lampa.SettingsApi.addParam({
+		                  component: EXTRAS_COMPONENT,
+		                  param: { name: 'ap_extras_none', type: 'static', values: none, default: none },
+		                  field: { name: 'Дополнительные плагины', description: none }
+		                });
+		              } else {
+		                for (var di = 0; di < disabled.length; di++) {
+		                  (function (raw) {
+		                    var meta = extraMeta(raw);
+		                    if (!meta) return;
+		                    var rowName = 'ap_extras_' + String(meta.hash);
 
-	            // Optional: show active/disabled lists in clean console (LOG_MODE=2 only).
-	            if (LOG_MODE === 2) {
-	              try {
-	                Lampa.SettingsApi.addParam({
-	                  component: 'bl_autoplugin',
-	                  param: { name: 'ap_console_table', type: 'button', text: 'Показать список в консоли (table)', title: 'Показать список в консоли (table)' },
-	                  field: { name: 'Debug', description: 'Выводит plugins[] и disabled[] в cleanConsole.table (только mode=2).' },
-	                  onChange: function () {
-	                    if (!BL.Console || !BL.Console.table) return;
-	                    var rows = [];
+		                    Lampa.SettingsApi.addParam({
+		                      component: EXTRAS_COMPONENT,
+		                      param: { name: rowName, type: 'static', default: true },
+		                      field: { name: meta.title, description: meta.desc },
+		                      onRender: function (item) {
+		                        try {
+		                          if (item && item.on) {
+		                            item.on('hover:enter', function () {
+		                              openExtraPluginDetail(meta);
+		                            });
+		                          }
 
-	                    try {
-	                      var p = cfg.plugins;
-	                      if (Array.isArray(p)) for (var i1 = 0; i1 < p.length; i1++) {
-	                        var it1 = p[i1];
-	                        var u1 = getPluginUrl(it1);
-	                        if (!u1) continue;
-	                        rows.push({ group: 'plugins', title: (it1 && it1.title) ? it1.title : guessName(absUrl(u1)), url: absUrl(u1) });
-	                      }
-	                    } catch (_) { }
+		                          // Status indicator (like addon.js): active / disabled / not installed.
+		                          if (!window.$ || !item) return;
+		                          setTimeout(function () {
+		                            try {
+		                              var $row = $('div[data-name="' + rowName + '"]');
+		                              if (!$row.length) return;
+		                              if ($row.find('.settings-param__status').length === 0) $row.append('<div class="settings-param__status one"></div>');
 
-	                    try {
-	                      var d2 = cfg.disabled;
-	                      if (Array.isArray(d2)) for (var i2 = 0; i2 < d2.length; i2++) {
-	                        var it2 = d2[i2];
-	                        var u2 = getPluginUrl(it2);
-	                        if (!u2) continue;
-	                        rows.push({ group: 'disabled', title: (it2 && it2.title) ? it2.title : guessName(absUrl(u2)), url: absUrl(u2) });
-	                      }
-	                    } catch (_) { }
+		                              var st = getInstalledState(meta.urlAbs);
+		                              var $st = $row.find('.settings-param__status');
+		                              if (st.installed && st.status !== 0) $st.css('background-color', '').removeClass('active error').addClass('active');
+		                              else if (st.installed && st.status === 0) $st.removeClass('active error').css('background-color', 'rgb(255, 165, 0)');
+		                              else $st.css('background-color', '').removeClass('active error').addClass('error');
+		                            } catch (_) { }
+		                          }, 0);
+		                        } catch (_) { }
+		                      }
+		                    });
+		                  })(disabled[di]);
+		                }
+		              }
+		            } catch (_) { }
 
-	                    BL.Console.table(rows);
-	                    showOk('Settings', 'console table', 'rows=' + String(rows.length));
-	                  }
-	                });
-	              } catch (_) { }
-	            }
+		            // Main menu items (required order)
+		            // 1) Переинициализация
+		            try {
+		              Lampa.SettingsApi.addParam({
+		                component: MAIN_COMPONENT,
+		                param: { name: 'ap_reset', type: 'button' },
+		                field: { name: 'Переинициализация', description: 'Сбрасывает флаги первой установки AutoPlugin. При следующем запуске снова пойдёт установка из массива.' },
+		                onChange: function () {
+		                  // WHY: user explicitly requests AutoPlugin to run again on next start.
+		                  runOnce('Переинициализация', 'Сбросить флаги первой установки AutoPlugin?\n\nЭто НЕ удаляет плагины.', function () {
+		                    resetFirstInstallFlags();
+		                    try { if (Lampa.Noty && Lampa.Noty.show) Lampa.Noty.show('[[BlackLampa]] AutoPlugin: флаг сброшен'); } catch (_) { }
+		                    refreshInstallerSettingsUi();
+		                  });
+		                }
+		              });
+		            } catch (_) { }
 
-	            // C) Maintenance
-	            var added = false;
+		            // 2) Factory reset
+		            try {
+		              Lampa.SettingsApi.addParam({
+		                component: MAIN_COMPONENT,
+		                param: { name: 'ap_factory_reset', type: 'button' },
+		                field: { name: 'Сброс Lampa до заводских', description: 'Полный сброс доменных данных (localStorage/sessionStorage/cookies/кеши) + повторная блокировка авторизации. Выполняет перезагрузку.' },
+		                onChange: function () {
+		                  // WHY: factory reset must reset first-install flags to avoid "skip" after restart.
+		                  runOnce('Сброс Lampa до заводских', 'Сбросить Lampa до заводских?\n\nЭто удалит доменные данные и выполнит перезагрузку.\n\nВНИМАНИЕ: действие необратимо.', function () {
+		                    resetLampa();
+		                  });
+		                }
+		              });
+		            } catch (_) { }
 
-	            // 1) Reinit: reset first-install flags (and nothing else).
-	            try {
-	              Lampa.SettingsApi.addParam({
-	                component: 'bl_autoplugin',
-	                param: { name: 'ap_reset', type: 'button', text: 'Сбросить флаг первой установки', title: 'Сбросить флаг первой установки' },
-	                field: { name: 'Переинициализация', description: 'Сбрасывает наши флаги первой установки (через Lampa.Storage). После этого при следующем запуске снова пойдёт установка из массива.' },
-	                onChange: function () {
-	                  // WHY: user explicitly requests AutoPlugin to run again on next start.
-	                  resetFirstInstallFlags();
-	                  try { if (Lampa.Noty && Lampa.Noty.show) Lampa.Noty.show('[[BlackLampa]] AutoPlugin: флаг сброшен'); } catch (_) { }
-	                  refreshInstallerSettingsUi();
-	                }
-	              });
-	              added = true;
-	            } catch (_) { }
+		            // 3) Remove all plugins
+		            try {
+		              Lampa.SettingsApi.addParam({
+		                component: MAIN_COMPONENT,
+		                param: { name: 'bl_remove_all_plugins', type: 'button' },
+		                field: { name: 'Удалить все плагины Lampa', description: 'Удаляет ВСЕ установленные плагины через Lampa.Storage (как в addon.js). Автоперезагрузка отключена.' },
+		                onChange: function () {
+		                  // WHY: do NOT reset first-install flags here (avoid unexpected re-install on next start).
+		                  runOnce('Удалить все плагины Lampa', 'Удалить ВСЕ плагины Lampa?\n\nАвтоперезагрузка отключена. При необходимости перезапустите приложение вручную.', function () {
+		                    removeAllPluginsLampa();
+		                  });
+		                }
+		              });
+		            } catch (_) { }
 
-	            if (!added) {
-	              Lampa.SettingsApi.addParam({
-	                component: 'bl_autoplugin',
-	                param: { name: 'ap_reset_select', type: 'select', values: { '0': '—', '1': 'Сбросить флаг первой установки' }, default: '0' },
-	                field: { name: 'Переинициализация', description: 'Выбери “Сбросить…”, чтобы сбросить флаги первой установки.' },
-	                onChange: function (value) {
-	                  if (String(value) === '1') {
-	                    // WHY: user explicitly requests AutoPlugin to run again on next start.
-	                    resetFirstInstallFlags();
-	                    try { if (Lampa.Noty && Lampa.Noty.show) Lampa.Noty.show('[[BlackLampa]] AutoPlugin: флаг сброшен'); } catch (_) { }
-	                    refreshInstallerSettingsUi();
-	                  }
-	                }
-	              });
-	            }
+		            // 4) Remove AutoPlugin Installer plugins (active list only)
+		            try {
+		              Lampa.SettingsApi.addParam({
+		                component: MAIN_COMPONENT,
+		                param: { name: 'bl_remove_autoplugin_plugins', type: 'button' },
+		                field: { name: 'Удалить плагины AutoPlugin Installer', description: 'Удаляет только плагины из bl.autoplugin.json → plugins[]. disabled[] не трогает.' },
+		                onChange: function () {
+		                  // WHY: do NOT reset first-install flags here (avoid unwanted re-install).
+		                  runOnce('Удалить плагины AutoPlugin Installer', 'Удалить плагины, которыми управляет AutoPlugin Installer?\n\nАвтоперезагрузка отключена. При необходимости перезапустите приложение вручную.', function () {
+		                    removeManagedPluginsLampa();
+		                  });
+		                }
+		              });
+		            } catch (_) { }
 
-	            // 2) Factory reset: full domain reset + auth relock (does reload).
-	            var addedFactory = false;
+		            // 5) Extras submenu
+		            try {
+		              Lampa.SettingsApi.addParam({
+		                component: MAIN_COMPONENT,
+		                param: { name: 'ap_extras', type: 'static', default: true },
+		                field: { name: 'Дополнительные плагины', description: 'Открывает список disabled[] из bl.autoplugin.json.' },
+		                onRender: function (item) {
+		                  try {
+		                    if (!item || !item.on) return;
+		                    item.on('hover:enter', function () {
+		                      openExtrasMenu();
+		                    });
+		                  } catch (_) { }
+		                }
+		              });
+		            } catch (_) { }
 
-	            try {
-	              Lampa.SettingsApi.addParam({
-	                component: 'bl_autoplugin',
-	                param: { name: 'ap_factory_reset', type: 'button', text: 'Сброс Lampa до заводских', title: 'Сброс Lampa до заводских' },
-	                field: { name: 'Сброс Lampa', description: 'Удаляет ВСЕ плагины через Lampa.Storage + сбрасывает AutoPlugin-флаги + стартовую страницу. Автоперезагрузка отключена.' },
-	                onChange: function () {
-	                  // WHY: factory reset must reset first-install flags to avoid "skip" after restart.
-	                  runOnce('Сброс Lampa до заводских', 'Сбросить Lampa до заводских?\n\nЭто удалит ВСЕ плагины через Lampa.Storage и сбросит настройки стартовой страницы.\n\nАвтоперезагрузка отключена. При необходимости перезапустите приложение вручную.', function () {
-	                    resetLampa();
-	                  });
-	                }
-	              });
-	              addedFactory = true;
-	            } catch (_) { }
+		            // X) Status (last, single item: help + raw)
+		            try {
+		              Lampa.SettingsApi.addParam({
+		                component: MAIN_COMPONENT,
+		                param: { name: 'ap_status', type: 'static', values: '', default: '' },
+		                field: { name: 'Статус', description: '' },
+		                onRender: function (item) {
+		                  try {
+		                    var v = getStatusHelpString() + '\n' + getStatusInfoString();
+		                    if (window.$ && item) $('.settings-param__descr', item).text(v);
+		                  } catch (_) { }
+		                }
+		              });
+		            } catch (_) { }
 
-	            if (!addedFactory) {
-	              Lampa.SettingsApi.addParam({
-	                component: 'bl_autoplugin',
-	                param: { name: 'ap_factory_reset_select', type: 'select', values: { '0': '—', '1': 'Сброс Lampa до заводских' }, default: '0' },
-	                field: { name: 'Сброс Lampa', description: 'Выбери “Сбросить…”, чтобы удалить ВСЕ плагины через Lampa.Storage. Автоперезагрузка отключена.' },
-	                onChange: function (value) {
-	                  if (String(value) === '1') {
-	                    // WHY: factory reset must reset first-install flags to avoid "skip" after restart.
-	                    runOnce('Сброс Lampa до заводских', 'Сбросить Lampa до заводских?\n\nЭто удалит ВСЕ плагины через Lampa.Storage.\n\nАвтоперезагрузка отключена. При необходимости перезапустите приложение вручную.', function () {
-	                      resetLampa();
-	                    });
-	                  }
-	                }
-	              });
-	            }
-
-	            // 3) Remove managed plugins (no flag reset).
-	            try {
-	              Lampa.SettingsApi.addParam({
-	                component: 'bl_autoplugin',
-	                param: { name: 'bl_remove_managed_plugins', type: 'button', text: 'Удалить плагины AutoPlugin Installer', title: 'Удалить плагины AutoPlugin Installer' },
-	                field: { name: 'Удалить плагины "AutoPlugin Installer"', description: 'Удаляет только плагины из bl.autoplugin.json (plugins + disabled). Ручные плагины не трогает.' },
-	                onChange: function () {
-	                  // WHY: do NOT reset first-install flags here (avoid unwanted re-install).
-	                  runOnce('Удалить плагины AutoPlugin Installer', 'Удалить плагины, которыми управляет AutoPlugin Installer?\n\nАвтоперезагрузка отключена. При необходимости перезапустите приложение вручную.', function () {
-	                    removeManagedPluginsLampa();
-	                  });
-	                }
-	              });
-	            } catch (_) { }
-
-	            // 4) Remove all plugins (no flag reset).
-	            try {
-	              Lampa.SettingsApi.addParam({
-	                component: 'bl_autoplugin',
-	                param: { name: 'bl_remove_all_plugins', type: 'button', text: 'Удалить все плагины Lampa', title: 'Удалить все плагины Lampa' },
-	                field: { name: 'Удалить все Плагины Lampa', description: 'Удаляет ВСЕ установленные плагины через Lampa.Storage (как в addon.js). Автоперезагрузка отключена.' },
-	                onChange: function () {
-	                  // WHY: do NOT reset first-install flags here (avoid unexpected re-install on next start).
-	                  runOnce('Удалить все плагины Lampa', 'Удалить ВСЕ плагины Lampa?\n\nАвтоперезагрузка отключена. При необходимости перезапустите приложение вручную.', function () {
-	                    removeAllPluginsLampa();
-	                  });
-	                }
-	              });
-	            } catch (_) { }
-
-	          } catch (_) { }
-	        }
+		          } catch (_) { }
+		        }
 
         // ============================================================================
         // global error hooks

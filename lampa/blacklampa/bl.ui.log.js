@@ -58,9 +58,11 @@
     return m;
   }
 
-	  function getLogMode() {
-	    var cfg = BL.Config || {};
-	    var logCfg = cfg.log || {};
+		  function getLogMode() {
+		    var cfg = null;
+		    try { cfg = (BL.Config && typeof BL.Config.get === 'function') ? BL.Config.get() : BL.Config; } catch (_) { cfg = BL.Config; }
+		    cfg = cfg || {};
+		    var logCfg = cfg.log || {};
 
 	    var q = null;
 	    try {
@@ -438,6 +440,11 @@
 
   function showLine(tag, source, message, extra) {
     if (LOG_MODE === 0) return;
+    // LOG_MODE meaning:
+    // - 0: off (except forced `raw()` console warnings)
+    // - 1: normal (no debug spam)
+    // - 2: debug (includes DBG)
+    if (tag === 'DBG' && LOG_MODE !== 2) return;
     var line = formatLine(tag, source, message, extra);
 
     consoleMirror(tag, line);
@@ -462,34 +469,33 @@
     });
   }
 
-	  BL.Log.init = function (opts) {
-	    opts = opts || {};
+		  BL.Log.init = function () {
+		    // Single source of truth: BL.Config.get()
+		    var cfg = null;
+		    try { cfg = (BL.Config && typeof BL.Config.get === 'function') ? BL.Config.get() : BL.Config; } catch (_) { cfg = BL.Config; }
+		    cfg = cfg || {};
 
-	    // Merge legacy init(opts) into BL.Config (single source of truth).
-	    var cfg = BL.Config = BL.Config || {};
-	    var uiCfg = cfg.ui = cfg.ui || {};
-	    var logCfg = cfg.log = cfg.log || {};
+		    var uiCfg = cfg.ui || {};
+		    var logCfg = cfg.log || {};
 
-	    try { if (typeof opts.defaultMode === 'number') logCfg.defaultMode = opts.defaultMode; } catch (_) { }
-	    try { if (typeof opts.titlePrefix === 'string') logCfg.titlePrefix = opts.titlePrefix; } catch (_) { }
-	    try { if (typeof opts.popupMs === 'number') uiCfg.popupMs = opts.popupMs; } catch (_) { }
-	    try { if (typeof opts.maxLines === 'number') logCfg.maxLines = opts.maxLines; } catch (_) { }
+		    // Read runtime values from BL.Config only (no inline defaults here).
+		    try { if (typeof logCfg.defaultMode === 'number') DEFAULT_LOG_MODE = logCfg.defaultMode; } catch (_) { }
+		    try { if (typeof logCfg.titlePrefix === 'string') TITLE_PREFIX = logCfg.titlePrefix; } catch (_) { }
 
-	    // Read runtime values from BL.Config.
-	    try { if (typeof logCfg.defaultMode === 'number') DEFAULT_LOG_MODE = logCfg.defaultMode; } catch (_) { }
-	    try { if (typeof logCfg.titlePrefix === 'string') TITLE_PREFIX = logCfg.titlePrefix; } catch (_) { }
-	    try { if (typeof uiCfg.popupMs === 'number') POPUP_MS = uiCfg.popupMs; } catch (_) { }
-	    try { if (typeof logCfg.maxLines === 'number') MAX_LINES = logCfg.maxLines; } catch (_) { }
+		    // popupMs lives in log (preferred). ui.popupMs kept as legacy alias.
+		    try { if (typeof logCfg.popupMs === 'number') POPUP_MS = logCfg.popupMs; } catch (_) { }
+		    try { if ((!POPUP_MS || POPUP_MS < 0) && typeof uiCfg.popupMs === 'number') POPUP_MS = uiCfg.popupMs; } catch (_) { }
 
-	    try { if (typeof uiCfg.popupScrollTolPx === 'number') SCROLL_TOL_PX = uiCfg.popupScrollTolPx; } catch (_) { }
-	    try { if (typeof logCfg.showThrottleMs === 'number') SHOW_THROTTLE_MS = logCfg.showThrottleMs; } catch (_) { }
+		    try { if (typeof logCfg.maxLines === 'number') MAX_LINES = logCfg.maxLines; } catch (_) { }
+		    try { if (typeof uiCfg.popupScrollTolPx === 'number') SCROLL_TOL_PX = uiCfg.popupScrollTolPx; } catch (_) { }
+		    try { if (typeof logCfg.showThrottleMs === 'number') SHOW_THROTTLE_MS = logCfg.showThrottleMs; } catch (_) { }
 
-	    try { if (typeof uiCfg.popupZIndex === 'number') POPUP_Z_INDEX = uiCfg.popupZIndex; } catch (_) { }
-	    try { if (typeof uiCfg.popupInsetPx === 'number') POPUP_INSET_PX = uiCfg.popupInsetPx; } catch (_) { }
-	    try { if (typeof uiCfg.popupBorderRadiusPx === 'number') POPUP_BORDER_RADIUS_PX = uiCfg.popupBorderRadiusPx; } catch (_) { }
-	    try { if (typeof uiCfg.popupProgressHeightPx === 'number') POPUP_PROGRESS_HEIGHT_PX = uiCfg.popupProgressHeightPx; } catch (_) { }
+		    try { if (typeof uiCfg.popupZIndex === 'number') POPUP_Z_INDEX = uiCfg.popupZIndex; } catch (_) { }
+		    try { if (typeof uiCfg.popupInsetPx === 'number') POPUP_INSET_PX = uiCfg.popupInsetPx; } catch (_) { }
+		    try { if (typeof uiCfg.popupBorderRadiusPx === 'number') POPUP_BORDER_RADIUS_PX = uiCfg.popupBorderRadiusPx; } catch (_) { }
+		    try { if (typeof uiCfg.popupProgressHeightPx === 'number') POPUP_PROGRESS_HEIGHT_PX = uiCfg.popupProgressHeightPx; } catch (_) { }
 
-	    LOG_MODE = getLogMode();
+		    LOG_MODE = getLogMode();
 
 	    // If popup already exists, refresh dynamic bits (mode/title).
 	    safe(function () {

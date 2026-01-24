@@ -5,7 +5,10 @@
   BL.Preload = BL.Preload || {};
 
   // Single source of truth: BL.Config.preload.*
-  var preloadCfg = (BL.Config && BL.Config.preload) ? BL.Config.preload : {};
+  var cfg = null;
+  try { cfg = (BL.Config && typeof BL.Config.get === 'function') ? BL.Config.get() : BL.Config; } catch (_) { cfg = BL.Config; }
+  cfg = cfg || {};
+  var preloadCfg = cfg.preload || {};
   var FLAG = String(preloadCfg.appliedFlagKey || '');
   var FALLBACK_KEY = String(preloadCfg.fallbackJsonKey || '');
   var PRELOAD_JSON_FILE = String(preloadCfg.jsonFile || '');

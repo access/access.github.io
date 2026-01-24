@@ -7,6 +7,12 @@
   var BL = window.BL = window.BL || {};
   BL.Config = BL.Config || {};
 
+  // Preferred accessor (kept stable for all BL modules).
+  // NOTE: BL.Config is both an object (storage) and a namespace for helpers.
+  if (typeof BL.Config.get !== 'function') {
+    BL.Config.get = function () { return BL.Config; };
+  }
+
   function ensureObj(root, key) {
     try {
       var v = root[key];
@@ -32,7 +38,6 @@
   var storage = ensureObj(cfg, 'storage');
 
   // UI (popup logger)
-  setDefault(ui, 'popupMs', 5000);
   setDefault(ui, 'popupZIndex', 2147483647);
   setDefault(ui, 'popupInsetPx', 5);
   setDefault(ui, 'popupBorderRadiusPx', 12);
@@ -44,10 +49,18 @@
   setDefault(log, 'titlePrefix', 'BlackLampa log');
   setDefault(log, 'modeLsKey', 'aplog');
   setDefault(log, 'modeQueryParams', ['aplog', 'apmode']);
+  setDefault(log, 'popupMs', 5000);
   setDefault(log, 'maxLines', 120);
-  setDefault(log, 'showThrottleMs', 400);
+  // IMPORTANT:
+  // - showThrottleMs controls ONLY popup lifetime re-arming on bursts.
+  // - for instant log visibility it must be 0 (no throttling).
+  setDefault(log, 'showThrottleMs', 0);
   // When true, each log line is appended to DOM immediately (no queue/flush).
-  setDefault(log, 'immediate', true);
+  setDefault(log, 'domImmediate', true);
+
+  // Legacy aliases (kept for older code paths).
+  setDefault(ui, 'popupMs', log.popupMs);
+  setDefault(log, 'immediate', log.domImmediate);
 
   // Auth
   // NOTE: key name is legacy; kept for compatibility (do not change without migration).
@@ -68,9 +81,14 @@
   setDefault(apFlags, 'sig', 'ap_installer_sig_v1');
   setDefault(apFlags, 'ts', 'ap_installer_ts_v1');
 
+  // AutoPlugin Settings UI (component ids must be stable for navigation)
+  var apUi = ensureObj(autoplugin, 'settings');
+  setDefault(apUi, 'componentId', 'bl_autoplugin');
+  setDefault(apUi, 'extrasComponentId', 'bl_autoplugin_extras');
+  setDefault(apUi, 'extraPluginComponentPrefix', 'bl_autoplugin_extras_plugin_');
+
   // Storage guards
   setDefault(storage, 'pluginsBlacklistKey', 'plugins_blacklist');
   setDefault(storage, 'pluginsBlacklistEmpty', '[]');
   setDefault(storage, 'pluginsBlacklistWatchdogMs', 2000);
 })();
-

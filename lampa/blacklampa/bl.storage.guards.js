@@ -14,7 +14,10 @@
   BL.Storage.lsDel = lsDel;
 
   // Centralized config (single source of truth).
-  var storageCfg = (BL.Config && BL.Config.storage) ? BL.Config.storage : {};
+  var cfg = null;
+  try { cfg = (BL.Config && typeof BL.Config.get === 'function') ? BL.Config.get() : BL.Config; } catch (_) { cfg = BL.Config; }
+  cfg = cfg || {};
+  var storageCfg = (cfg.storage && typeof cfg.storage === 'object') ? cfg.storage : {};
   var LS_PLUGINS_BLACKLIST_KEY = String(storageCfg.pluginsBlacklistKey || '');
   var LS_PLUGINS_BLACKLIST_EMPTY = String(storageCfg.pluginsBlacklistEmpty || ''); // важно: обычно там JSON-строка массива
   var LS_PLUGINS_BLACKLIST_WATCHDOG_MS = (typeof storageCfg.pluginsBlacklistWatchdogMs === 'number') ? storageCfg.pluginsBlacklistWatchdogMs : 0;
