@@ -175,8 +175,8 @@
 	        }
 	      } catch (_) { }
 
-	      try { if (console && console.warn) return console.warn(line); } catch (_) { }
-	      try { if (console && console.log) return console.log(line); } catch (_) { }
+	      try { if (BL.Console && BL.Console.warn) return BL.Console.warn(line); } catch (_) { }
+	      try { if (BL.Console && BL.Console.log) return BL.Console.log(line); } catch (_) { }
 	    } catch (_) { }
 	  };
 

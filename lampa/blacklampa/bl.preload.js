@@ -24,16 +24,18 @@
         if (level === 'INF' && BL.Log.showInfo) return BL.Log.showInfo('Preload', message, extra);
         if (level === 'DBG' && BL.Log.showDbg) return BL.Log.showDbg('Preload', message, extra);
       }
-    } catch (_) { }
-    try {
-      var line = '[BlackLampa] ' + String(level) + ' Preload: ' + String(message) + (extra ? (' | ' + String(extra)) : '');
-      var fn = (console && console.log) ? console.log : null;
-      if (level === 'ERR' && console && console.error) fn = console.error;
-      else if (level === 'WRN' && console && console.warn) fn = console.warn;
-      else if (level === 'DBG' && console && console.debug) fn = console.debug;
-      if (fn) fn.call(console, line);
-    } catch (_) { }
-  }
+	    } catch (_) { }
+	    try {
+	      var line = '[BlackLampa] ' + String(level) + ' Preload: ' + String(message) + (extra ? (' | ' + String(extra)) : '');
+	      if (BL.Console) {
+	        if (level === 'ERR' && BL.Console.error) return BL.Console.error(line);
+	        if (level === 'WRN' && BL.Console.warn) return BL.Console.warn(line);
+	        if (level === 'DBG' && BL.Console.debug) return BL.Console.debug(line);
+	        if (level === 'INF' && BL.Console.info) return BL.Console.info(line);
+	        if (BL.Console.log) return BL.Console.log(line);
+	      }
+	    } catch (_) { }
+	  }
 
   function normalizeRoot(obj) {
     try {

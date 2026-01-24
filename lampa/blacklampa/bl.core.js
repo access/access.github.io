@@ -3,6 +3,7 @@
 
   var BL = window.BL = window.BL || {};
   BL.Core = BL.Core || {};
+  BL.Console = BL.Console || {};
 
   function safe(fn, fallback) {
     try { return fn(); } catch (_) { return fallback; }
@@ -124,4 +125,61 @@
   BL.Core.loadScript = loadScript;
   BL.Core.loadScriptSeq = loadScriptSeq;
   BL.Core.loadJson = loadJson;
+
+  // ============================================================================
+  // Clean console (iframe console)
+  //
+  // Lampa may wrap/override window.console. To keep consistent levels (warn/info/error)
+  // we use a "clean" console from a hidden iframe when possible.
+  // Must be safe for TV/old environments: always fallback to window.console.
+  // ============================================================================
+  var __cleanConsole = null;
+  var __cleanConsoleTried = false;
+
+  function getCleanConsole() {
+    try {
+      if (__cleanConsole) return __cleanConsole;
+      if (__cleanConsoleTried && !document) return window.console;
+
+      if (!document || !document.documentElement || !document.createElement) return window.console;
+
+      // Retry until DOM is available; once we try with DOM, remember the outcome.
+      __cleanConsoleTried = true;
+
+      var iframe = document.createElement('iframe');
+      iframe.style.display = 'none';
+
+      document.documentElement.appendChild(iframe);
+
+      if (iframe && iframe.contentWindow && iframe.contentWindow.console) {
+        __cleanConsole = iframe.contentWindow.console;
+        return __cleanConsole;
+      }
+    } catch (_) { }
+
+    try { return window.console; } catch (_) { return null; }
+  }
+
+  function consoleCall(method, args) {
+    try {
+      var c = getCleanConsole();
+      if (!c) return;
+      var fn = null;
+
+      try { fn = c[method]; } catch (_) { fn = null; }
+      if (typeof fn !== 'function') {
+        try { fn = c.log; } catch (_) { fn = null; }
+      }
+      if (typeof fn !== 'function') return;
+      fn.apply(c, args);
+    } catch (_) { }
+  }
+
+  BL.Console.get = getCleanConsole;
+  BL.Console.log = function () { consoleCall('log', arguments); };
+  BL.Console.info = function () { consoleCall('info', arguments); };
+  BL.Console.warn = function () { consoleCall('warn', arguments); };
+  BL.Console.error = function () { consoleCall('error', arguments); };
+  BL.Console.debug = function () { consoleCall('debug', arguments); };
+  BL.Console.table = function () { consoleCall('table', arguments); };
 })();

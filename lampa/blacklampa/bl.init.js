@@ -46,17 +46,18 @@
     catch (_) { return String(u); }
   }
 
-  function consoleLine(level, module, message, extra) {
-    try {
-      var line = '[BlackLampa] ' + String(level) + ' ' + String(module) + ': ' + String(message) + (extra ? (' | ' + String(extra)) : '');
-      var fn = null;
-      if (level === 'ERR') fn = (console && console.error) ? console.error : null;
-      else if (level === 'WRN') fn = (console && console.warn) ? console.warn : null;
-      else if (level === 'DBG') fn = (console && console.debug) ? console.debug : null;
-      else fn = (console && console.log) ? console.log : null;
-      if (fn) fn.call(console, line);
-    } catch (_) { }
-  }
+	  function consoleLine(level, module, message, extra) {
+	    try {
+	      var line = '[BlackLampa] ' + String(level) + ' ' + String(module) + ': ' + String(message) + (extra ? (' | ' + String(extra)) : '');
+	      if (BL.Console) {
+	        if (level === 'ERR' && BL.Console.error) return BL.Console.error(line);
+	        if (level === 'WRN' && BL.Console.warn) return BL.Console.warn(line);
+	        if (level === 'DBG' && BL.Console.debug) return BL.Console.debug(line);
+	        if (level === 'INF' && BL.Console.info) return BL.Console.info(line);
+	        if (BL.Console.log) return BL.Console.log(line);
+	      }
+	    } catch (_) { }
+	  }
 
   function log(level, module, message, extra) {
     try {

@@ -402,13 +402,13 @@
 	    // Single source of truth: progressbars represent the same POPUP_MS as the hide timer.
 	    startProgressBars(POPUP_MS);
 
-	    // Optional diagnostics (console only; avoids recursion into popup logger).
-	    safe(function () {
-	      if (LOG_MODE !== 2) return;
-	      if (!console || !console.debug) return;
-	      console.debug(String(PREFIX) + ' DBG LogUI: arm ' + String(reason || 'log') + ' | ms=' + String(POPUP_MS));
-	    });
-	  }
+		    // Optional diagnostics (console only; avoids recursion into popup logger).
+		    safe(function () {
+		      if (LOG_MODE !== 2) return;
+		      if (!BL.Console || !BL.Console.debug) return;
+		      BL.Console.debug(String(PREFIX) + ' DBG LogUI: arm ' + String(reason || 'log') + ' | ms=' + String(POPUP_MS));
+		    });
+		  }
 
 		  function showPopupNow() {
 		    if (LOG_MODE === 0) return;
@@ -421,24 +421,20 @@
     appendPopupLine(line, tag);
   }
 
-  function consoleMirror(tag, line, force) {
-    try {
-      if (!force && LOG_MODE === 0) return;
+	  function consoleMirror(tag, line, force) {
+	    try {
+	      if (!force && LOG_MODE === 0) return;
+	      if (!BL.Console) return;
 
-      var c = console;
-      var logFn = (c && c.log) ? c.log : null;
-
-      var fn = null;
-      if (tag === 'ERR') fn = (c && c.error) ? c.error : logFn;
-      else if (tag === 'WRN') fn = (c && c.warn) ? c.warn : logFn;
-      else if (tag === 'INF') fn = (c && c.info) ? c.info : logFn;
-      else if (tag === 'DBG') fn = (c && c.debug) ? c.debug : logFn;
-      else fn = logFn;
-
-      if (!fn) return;
-      fn.call(c, String(line));
-    } catch (_) { }
-  }
+	      var out = String(line);
+	      if (tag === 'ERR' && BL.Console.error) return BL.Console.error(out);
+	      if (tag === 'WRN' && BL.Console.warn) return BL.Console.warn(out);
+	      if (tag === 'INF' && BL.Console.info) return BL.Console.info(out);
+	      if (tag === 'DBG' && BL.Console.debug) return BL.Console.debug(out);
+	      if (tag === 'OK' && BL.Console.info) return BL.Console.info(out);
+	      if (BL.Console.log) return BL.Console.log(out);
+	    } catch (_) { }
+	  }
 
   function showLine(tag, source, message, extra) {
     if (LOG_MODE === 0) return;
