@@ -31,6 +31,7 @@
   ],
   "disabled": [
     { "url": "scripts/store.js", "title": "rating.js", "desc": "", "tags": ["stats", "ui"] },
+    { "url": "scripts/addon.js", "title": "BylampaAddon(Fixed)", "desc": "Bylampa addon fixed", "tags": ["stats", "ui"] },
     { "url": "https://bdvburik.github.io/title.js", "title": "title.js", "desc": "", "reason": "commented in source list", "tags": ["ui"], "since": 0 },
     { "url": "http://skaz.tv/onlines.js", "title": "onlines.js", "desc": "", "reason": "commented in source list", "tags": ["sources"], "since": 0 },
     { "url": "http://skaz.tv/vcdn.js", "title": "vcdn.js", "desc": "", "reason": "commented in source list", "tags": ["sources", "cloud"], "since": 0 },
