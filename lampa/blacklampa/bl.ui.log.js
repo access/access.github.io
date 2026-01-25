@@ -141,7 +141,7 @@
 			'right:' + String(POPUP_INSET_PX) + 'px',
 			'bottom:' + String(POPUP_INSET_PX) + 'px',
 			'z-index:' + String(POPUP_Z_INDEX),
-			'background:rgba(0,0,0,0.77)',
+			'background:rgba(0,0,0,0.88)',
 			'color:#fff',
 			'border-radius:' + String(POPUP_BORDER_RADIUS_PX) + 'px',
 			'box-sizing:border-box',
