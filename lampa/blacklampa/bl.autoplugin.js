@@ -1937,14 +1937,14 @@
         doneLaterFallback();
       }
 
-	      function startWithoutConfig(err) {
-	        try {
-	          var msg = err && err.message ? err.message : String(err);
-	          if (BL.Log && BL.Log.showWarn) BL.Log.showWarn('AutoPlugin', 'config load error', msg);
-	          else if (BL.Console && BL.Console.warn) BL.Console.warn('[BlackLampa] WRN AutoPlugin: config load error | ' + msg);
-	        } catch (_) { }
-	        startWithConfig({});
-	      }
+		      function startWithoutConfig(err) {
+		        try {
+		          var msg = err && err.message ? err.message : String(err);
+		          if (BL.Log && BL.Log.showWarn) BL.Log.showWarn('AutoPlugin', 'config load error', msg);
+		          else if (BL.cfg && BL.cfg.LOG_MODE !== 0 && BL.Console && BL.Console.warn) BL.Console.warn('[BlackLampa] WRN AutoPlugin: config load error | ' + msg);
+		        } catch (_) { }
+		        startWithConfig({});
+		      }
 
       try {
         if (BL.Core && BL.Core.loadJson) {

@@ -280,7 +280,7 @@
 	}
 
 	function ensurePopup(force) {
-		if (LOG_MODE === 0 && !force && !viewerMode) return null;
+		if (LOG_MODE === 0) return null;
 		if (popupEl) return popupEl;
 		if (!document || !document.body) return null;
 
@@ -711,6 +711,11 @@
 		try { if (typeof uiCfg.popupProgressHeightPx === 'number') POPUP_PROGRESS_HEIGHT_PX = uiCfg.popupProgressHeightPx; } catch (_) { }
 
 		LOG_MODE = getLogMode();
+		try {
+			// Fast global gate for other modules: `if (!BL.cfg || BL.cfg.LOG_MODE === 0) return;`
+			if (BL.cfg && typeof BL.cfg === 'object') BL.cfg.LOG_MODE = LOG_MODE;
+			else if (cfg && typeof cfg === 'object') { cfg.LOG_MODE = LOG_MODE; BL.cfg = cfg; }
+		} catch (_) { }
 
 		// If popup already exists, refresh dynamic bits (mode/title).
 		safe(function () {
@@ -728,7 +733,10 @@
 	BL.Log.mode = function () { return LOG_MODE; };
 
 	BL.Log.ensurePopup = ensurePopup;
-	BL.Log.hide = function () { safe(function () { if (popupEl && !viewerMode) popupEl.style.display = 'none'; }); };
+	BL.Log.hide = function () {
+		if (LOG_MODE === 0) return;
+		safe(function () { if (popupEl && !viewerMode) popupEl.style.display = 'none'; });
+	};
 
 	function stopProgressBars() {
 		popupProgressSeq++;
@@ -789,6 +797,8 @@
 
 	function setViewerMode(on) {
 		try {
+			// Viewer-mode is disabled when logging is off.
+			if (on && LOG_MODE === 0) return;
 			if (on === viewerMode) return;
 			viewerMode = Boolean(on);
 
@@ -861,10 +871,10 @@
 	}
 
 	BL.Log.setViewerMode = setViewerMode;
-	BL.Log.openViewer = function () { setViewerMode(true); };
+	BL.Log.openViewer = function () { if (LOG_MODE === 0) return; setViewerMode(true); };
 	BL.Log.closeViewer = function () { setViewerMode(false); };
 
-	BL.Log.showError = function (source, message, extra) { showLine('ERR', source, message, extra); };
+	BL.Log.showError = function (source, message, extra) { if (LOG_MODE === 0) return; showLine('ERR', source, message, extra); };
 	BL.Log.showException = function (source, err, context) {
 		try {
 			if (LOG_MODE === 0 && !viewerMode) return;
@@ -873,17 +883,20 @@
 			showLine('ERR', source || 'ERR', 'exception', extra);
 		} catch (_) { }
 	};
-	BL.Log.showWarn = function (source, message, extra) { showLine('WRN', source, message, extra); };
-	BL.Log.showOk = function (source, message, extra) { showLine('OK', source, message, extra); };
-	BL.Log.showInfo = function (source, message, extra) { showLine('INF', source, message, extra); };
-	BL.Log.showDbg = function (source, message, extra) { showLine('DBG', source, message, extra); };
+	BL.Log.showWarn = function (source, message, extra) { if (LOG_MODE === 0) return; showLine('WRN', source, message, extra); };
+	BL.Log.showOk = function (source, message, extra) { if (LOG_MODE === 0) return; showLine('OK', source, message, extra); };
+	BL.Log.showInfo = function (source, message, extra) { if (LOG_MODE === 0) return; showLine('INF', source, message, extra); };
+	BL.Log.showDbg = function (source, message, extra) { if (LOG_MODE === 0) return; showLine('DBG', source, message, extra); };
 
 	// Raw log line output:
 	// Used by low-level hooks (e.g. network policy) that must preserve an exact pre-formatted line.
 	// Popup output respects LOG_MODE, but console output can be forced (mandatory warnings).
 	BL.Log.raw = function (tag, line, force) {
-		try { if (force || LOG_MODE !== 0 || viewerMode) consoleMirror(tag, line, true); } catch (_) { }
-		try { if (LOG_MODE !== 0 || viewerMode) pushPopupLine(line, tag); } catch (_) { }
+		try {
+			if (LOG_MODE === 0) return;
+			consoleMirror(tag, line, true);
+			pushPopupLine(line, tag);
+		} catch (_) { }
 	};
 
 	BL.Log.isEnabled = function () { return (LOG_MODE !== 0) || viewerMode; };

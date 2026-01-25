@@ -442,7 +442,12 @@
 	  var __netLogFlushTimer = null;
 
 	  function getLogModeFast() {
-	    try { if (BL.Log && typeof BL.Log.mode === 'function') return BL.Log.mode() || 0; } catch (_) { }
+	    try { if (BL.cfg && typeof BL.cfg.LOG_MODE === 'number') return BL.cfg.LOG_MODE || 0; } catch (_) { }
+	    try {
+	      var c = null;
+	      try { c = (BL.Config && typeof BL.Config.get === 'function') ? BL.Config.get() : BL.Config; } catch (_) { c = BL.Config; }
+	      if (c && typeof c.LOG_MODE === 'number') return c.LOG_MODE || 0;
+	    } catch (_) { }
 	    return 0;
 	  }
 
@@ -583,9 +588,9 @@
 
 	  BL.Net.logBlocked = BL.Net.logBlocked || function (context) {
 	    try {
-	      __perfNetBlocked++;
 	      // When logging is disabled (aplog=0), do nothing (no strings/console/DOM).
-	      if (!isLogEnabledFast()) return;
+	      try { if (BL.cfg && BL.cfg.PERF_DEBUG) __perfNetBlocked++; } catch (_) { }
+	      if (!BL.cfg || BL.cfg.LOG_MODE === 0) return;
 	      if (!netLogAllow()) return;
 
 	      context = context || {};
@@ -758,7 +763,7 @@
 	  function install(log) {
     // idempotency guard (do not wrap fetch/xhr/ws twice)
     if (BL.PolicyNetwork.__installed) {
-      logCall(log, 'showDbg', 'Policy', 'already installed', '');
+      if (isLogEnabledFast()) logCall(log, 'showDbg', 'Policy', 'already installed', '');
       return;
     }
     BL.PolicyNetwork.__installed = true;
@@ -775,11 +780,11 @@
 	    if (window.fetch) {
 	      var origFetch = window.fetch.bind(window);
 	      window.fetch = function (input, init) {
-	        __perfNetReq++;
+	        if (PERF_DEBUG) __perfNetReq++;
 	        var u = (typeof input === 'string') ? input : (input && input.url) ? input.url : '';
 
 	        if (isCubBlacklistUrl(u)) {
-	          if (isLogEnabledFast()) logCall(log, 'showOk', 'CUB', 'blacklist overridden', 'fetch | ' + String(u));
+	          if (BL.cfg && BL.cfg.LOG_MODE !== 0) logCall(log, 'showOk', 'CUB', 'blacklist overridden', 'fetch | ' + String(u));
 	          return Promise.resolve(BL.Net.makeFakeOkResponse({ url: u, type: 'fetch', reason: 'CUB:blacklist' }));
 	        }
 
@@ -801,7 +806,7 @@
       var origSend = XHR.prototype.send;
 
       XHR.prototype.open = function (method, url) {
-        __perfNetReq++;
+        if (PERF_DEBUG) __perfNetReq++;
         this.__ap_url = url;
         this.__ap_mock_cub_blacklist = isCubBlacklistUrl(url);
         this.__ap_block_ctx = getBlockContext(url);
@@ -815,7 +820,7 @@
 
 	          setTimeout(function () {
 	            try {
-	              if (isLogEnabledFast()) logCall(log, 'showOk', 'CUB', 'blacklist overridden', 'XHR | ' + String(u0));
+	              if (BL.cfg && BL.cfg.LOG_MODE !== 0) logCall(log, 'showOk', 'CUB', 'blacklist overridden', 'XHR | ' + String(u0));
 	              var fake = BL.Net.makeFakeOkResponse({ url: u0, type: 'xhr', reason: 'CUB:blacklist' });
 	              if (fake && fake.applyToXhr) fake.applyToXhr(xhr0);
 	            } catch (_) { }
@@ -847,7 +852,7 @@
 	    if (navigator.sendBeacon) {
 	      var origBeacon = navigator.sendBeacon.bind(navigator);
 	      navigator.sendBeacon = function (url, data) {
-	        __perfNetReq++;
+	        if (PERF_DEBUG) __perfNetReq++;
 	        var ctx = getBlockContext(url);
 	        if (ctx && ctx.reason) {
 	          var c = { url: ctx.url || url, type: 'beacon', reason: ctx.reason };
@@ -863,11 +868,11 @@
 	        BL.PolicyNetwork.__wsHooked = true;
 	        var OrigWS = window.WebSocket;
 	        window.WebSocket = function (url, protocols) {
-	          __perfNetReq++;
+	          if (PERF_DEBUG) __perfNetReq++;
 	          var ctx = getBlockContext(url);
 	          if (ctx && ctx.reason) {
 	            var c = { url: ctx.url || url, type: 'ws', reason: ctx.reason };
-	            BL.Net.logBlocked(c);
+	            // WebSocket must never be logged (even when logging is enabled).
 	            return BL.Net.makeFakeOkResponse(c);
 	          }
 	          return (protocols !== undefined) ? new OrigWS(url, protocols) : new OrigWS(url);
@@ -916,7 +921,7 @@
       }
     } catch (_) { }
 
-    logCall(log, 'showOk', 'Policy', 'installed', 'Yandex + Google/YouTube + Statistics + BWA:CORS(/cors/check) + CUB:blacklist([])');
+    if (BL.cfg && BL.cfg.LOG_MODE !== 0) logCall(log, 'showOk', 'Policy', 'installed', 'Yandex + Google/YouTube + Statistics + BWA:CORS(/cors/check) + CUB:blacklist([])');
   }
 
   BL.PolicyNetwork.install = install;

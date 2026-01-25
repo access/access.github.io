@@ -48,6 +48,8 @@
 
 	  function consoleLine(level, module, message, extra) {
 	    try {
+	      // Global hard gate: no logs when aplog=0.
+	      if (!BL.cfg || BL.cfg.LOG_MODE === 0) return;
 	      var line = '[BlackLampa] ' + String(level) + ' ' + String(module) + ': ' + String(message) + (extra ? (' | ' + String(extra)) : '');
 	      if (BL.Console) {
 	        if (level === 'ERR' && BL.Console.error) return BL.Console.error(line);
@@ -61,6 +63,8 @@
 
   function log(level, module, message, extra) {
     try {
+      // Global hard gate: no logs when aplog=0.
+      if (!BL.cfg || BL.cfg.LOG_MODE === 0) return;
       if (!BL.Log) throw 0;
       if (level === 'ERR' && BL.Log.showError) return BL.Log.showError(module, message, extra);
       if (level === 'WRN' && BL.Log.showWarn) return BL.Log.showWarn(module, message, extra);

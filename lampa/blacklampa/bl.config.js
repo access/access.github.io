@@ -45,6 +45,9 @@
   setDefault(ui, 'popupScrollTolPx', 40);
 
   // Logging
+  // Global log mode (single source of truth for fast gates across BL modules).
+  // Runtime value is updated by BL.Log.init() (query/ls overrides).
+  setDefault(cfg, 'LOG_MODE', 0);
   setDefault(log, 'defaultMode', 0);
   setDefault(log, 'titlePrefix', 'BlackLampa log');
   setDefault(log, 'modeLsKey', 'aplog');
@@ -105,4 +108,7 @@
   // ============================================================================
   setDefault(cfg, 'NET_HOOK_WS', 0);
   setDefault(cfg, 'PERF_DEBUG', 0);
+
+  // Short alias (used in hot-path gates): BL.cfg.LOG_MODE
+  try { BL.cfg = cfg; } catch (_) { }
 })();

@@ -20,6 +20,10 @@
   // It modifies localStorage to set default settings/state.
   function log(level, message, extra) {
     try {
+      // Global hard gate: no logs when aplog=0.
+      if (!BL.cfg || BL.cfg.LOG_MODE === 0) return;
+    } catch (_) { return; }
+    try {
       if (BL.Log) {
         if (level === 'ERR' && BL.Log.showError) return BL.Log.showError('Preload', message, extra);
         if (level === 'WRN' && BL.Log.showWarn) return BL.Log.showWarn('Preload', message, extra);

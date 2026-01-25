@@ -31,6 +31,7 @@
   }
 
   function getLogModeFast() {
+    try { if (BL.cfg && typeof BL.cfg.LOG_MODE === 'number') return BL.cfg.LOG_MODE || 0; } catch (_) { }
     try { if (BL.Log && typeof BL.Log.mode === 'function') return BL.Log.mode() || 0; } catch (_) { }
     return 0;
   }
