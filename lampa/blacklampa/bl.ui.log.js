@@ -683,7 +683,7 @@
 			try { if (popupProgressBottomEl) popupProgressBottomEl.style.display = 'none'; } catch (_) { }
 
 			// Visual tweaks (requested)
-			try { el.style.opacity = '0.77'; } catch (_) { }
+//			try { el.style.opacity = '0.77'; } catch (_) { }
 
 			// Allow viewer interactions (scroll / close)
 			try { el.style.pointerEvents = 'auto'; } catch (_) { }
