@@ -22,7 +22,6 @@
     { "url": "https://tsynik.github.io/lampa/e.js", "title": "e.js", "desc": "", "tags": ["sources"] },
     { "url": "https://bylampa.github.io/source.js", "title": "source.js", "desc": "", "tags": ["sources"] },
     { "url": "https://nb557.github.io/plugins/online_mod.js", "title": "online_mod.js", "desc": "", "tags": ["player"] },
-    { "url": "https://lampa.stream/modss", "title": "modss", "desc": "", "tags": ["store"] },
     { "url": "https://bwa.to/cloud.js", "title": "cloud.js", "desc": "", "tags": ["cloud"] },
     { "url": "https://skaztv.online/store.js", "title": "store.js", "desc": "", "tags": ["store"] },
     { "url": "https://amikdn.github.io/buttons.js", "title": "buttons.js", "desc": "", "tags": ["ui"] },
@@ -30,6 +29,7 @@
     { "url": "https://aviamovie.github.io/surs.js", "title": "surs.js", "desc": "", "tags": ["sources"] }
   ],
   "disabled": [
+    { "url": "https://lampa.stream/modss", "title": "modss", "desc": "", "tags": ["store"] },
     { "url": "scripts/store.js", "title": "rating.js", "desc": "", "tags": ["stats", "ui"] },
     { "url": "scripts/addon.js", "title": "BylampaAddon(Fixed)", "desc": "Bylampa addon fixed", "tags": ["stats", "ui"] },
     { "url": "https://bdvburik.github.io/title.js", "title": "title.js", "desc": "", "reason": "commented in source list", "tags": ["ui"], "since": 0 },
