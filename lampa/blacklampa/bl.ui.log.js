@@ -141,7 +141,7 @@
 			'right:' + String(POPUP_INSET_PX) + 'px',
 			'bottom:' + String(POPUP_INSET_PX) + 'px',
 			'z-index:' + String(POPUP_Z_INDEX),
-			'background:rgba(0,0,0,0.88)',
+			'background:rgba(0,0,0,0.44)',
 			'color:#fff',
 			'border-radius:' + String(POPUP_BORDER_RADIUS_PX) + 'px',
 			'box-sizing:border-box',
@@ -683,7 +683,7 @@
 			try { if (popupProgressBottomEl) popupProgressBottomEl.style.display = 'none'; } catch (_) { }
 
 			// Visual tweaks (requested)
-//			try { el.style.opacity = '0.77'; } catch (_) { }
+			try { el.style.opacity = '0.77'; } catch (_) { }
 
 			// Allow viewer interactions (scroll / close)
 			try { el.style.pointerEvents = 'auto'; } catch (_) { }
