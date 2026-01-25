@@ -660,26 +660,27 @@
 		              } catch (_) { }
 		            }
 
-		            function extraMeta(raw) {
-		              try {
-		                var url = getPluginUrl(raw);
-		                if (!url) return null;
-		                var urlAbs = absUrl(url);
+			            function extraMeta(raw) {
+			              try {
+			                var url = getPluginUrl(raw);
+			                if (!url) return null;
+			                var urlAbs = absUrl(url);
 
 		                var title = '';
 		                var desc = '';
 		                try { if (raw && typeof raw === 'object' && !Array.isArray(raw) && typeof raw.title === 'string') title = String(raw.title || ''); } catch (_) { title = ''; }
-		                try { if (raw && typeof raw === 'object' && !Array.isArray(raw) && typeof raw.desc === 'string') desc = String(raw.desc || ''); } catch (_) { desc = ''; }
+			                try { if (raw && typeof raw === 'object' && !Array.isArray(raw) && typeof raw.desc === 'string') desc = String(raw.desc || ''); } catch (_) { desc = ''; }
 
-		                if (!title) title = guessName(urlAbs);
-		                if (!desc) desc = '(описание не задано)';
+			                if (!title) title = guessName(urlAbs);
+			                // Leave description empty when not provided (URL is shown separately in UI).
+			                if (!desc) desc = '';
 
-		                var hash = djb2('extra|' + urlAbs);
-		                return { raw: raw, url: url, urlAbs: urlAbs, title: title, desc: desc, hash: hash };
-		              } catch (_) {
-		                return null;
-		              }
-		            }
+			                var hash = djb2('extra|' + urlAbs);
+			                return { raw: raw, url: url, urlAbs: urlAbs, title: title, desc: desc, hash: hash };
+			              } catch (_) {
+			                return null;
+			              }
+			            }
 
 		            function getInstalledState(urlAbs) {
 		              var list = getInstalledPlugins();
@@ -719,9 +720,9 @@
 		              return removed;
 		            }
 
-		            function buildExtrasScreen() {
-		              try {
-		                var disabled = (cfg && Array.isArray(cfg.disabled)) ? cfg.disabled : [];
+			            function buildExtrasScreen() {
+			              try {
+			                var disabled = (cfg && Array.isArray(cfg.disabled)) ? cfg.disabled : [];
 		                if (!disabled.length) {
 		                  var none = 'Нет дополнительных плагинов.';
 		                  Lampa.SettingsApi.addParam({
@@ -738,31 +739,52 @@
 		                    var meta = extraMeta(raw);
 		                    if (!meta) return;
 
-		                    Lampa.SettingsApi.addParam({
-		                      component: MAIN_COMPONENT,
-		                      param: { name: 'ap_extras_' + String(meta.hash), type: 'static', default: true },
-		                      field: { name: meta.title, description: meta.desc },
-		                      onRender: function (item) {
-		                        try {
-		                          if (item && item.on) {
-		                            item.on('hover:enter', function () {
-		                              openExtraDetailScreen(meta, rowIndex);
-		                            });
-		                          }
+			                    Lampa.SettingsApi.addParam({
+			                      component: MAIN_COMPONENT,
+			                      param: { name: 'ap_extras_' + String(meta.hash), type: 'static', default: true },
+			                      field: { name: meta.title, description: meta.desc },
+			                      onRender: function (item) {
+			                        try {
+			                          if (item && item.on) {
+			                            item.on('hover:enter', function () {
+			                              openExtraDetailScreen(meta, rowIndex);
+			                            });
+			                          }
 
-		                          // Status indicator (like addon.js): active / disabled / not installed.
-		                          if (!window.$ || !item) return;
-		                          if (item.find('.settings-param__status').length === 0) item.append('<div class="settings-param__status one"></div>');
+			                          // URL line (soft, second line under the title).
+			                          try {
+			                            if (!window.$ || !item) return;
+			                            var $d = item.find('.settings-param__descr');
+			                            if (!$d.length) {
+			                              item.append('<div class="settings-param__descr"></div>');
+			                              $d = item.find('.settings-param__descr');
+			                            }
+			                            if ($d.find('.bl-ap-url').length === 0) {
+			                              var $u = $('<div class="bl-ap-url"></div>');
+			                              $u.text(String(meta.urlAbs || ''));
+			                              $u.css({
+			                                opacity: '0.9',
+			                                'font-size': '0.88em',
+			                                'word-break': 'break-all',
+			                                'margin-top': meta.desc ? '0.25em' : '0'
+			                              });
+			                              $d.append($u);
+			                            }
+			                          } catch (_) { }
 
-		                          var st = getInstalledState(meta.urlAbs);
-		                          var $st = item.find('.settings-param__status');
-		                          if (st.installed && st.status !== 0) $st.css('background-color', '').removeClass('active error').addClass('active');
-		                          else if (st.installed && st.status === 0) $st.removeClass('active error').css('background-color', 'rgb(255, 165, 0)');
-		                          else $st.css('background-color', '').removeClass('active error').addClass('error');
-		                        } catch (_) { }
-		                      }
-		                    });
-		                  })(disabled[di], idx);
+			                          // Status indicator (like addon.js): active / disabled / not installed.
+			                          if (!window.$ || !item) return;
+			                          if (item.find('.settings-param__status').length === 0) item.append('<div class="settings-param__status one"></div>');
+
+			                          var st = getInstalledState(meta.urlAbs);
+			                          var $st = item.find('.settings-param__status');
+			                          if (st.installed && st.status !== 0) $st.css('background-color', '').removeClass('active error').addClass('active');
+			                          else if (st.installed && st.status === 0) $st.removeClass('active error').css('background-color', 'rgb(255, 165, 0)');
+			                          else $st.css('background-color', '').removeClass('active error').addClass('error');
+			                        } catch (_) { }
+			                      }
+			                    });
+			                  })(disabled[di], idx);
 		                  idx++;
 		                }
 		              } catch (_) { }
@@ -856,8 +878,8 @@
 		              } catch (_) { }
 		            }
 
-		            function buildMainScreen() {
-		              var idx = 0;
+			            function buildMainScreen() {
+			              var idx = 0;
 
 		              // Main menu items (required order)
 		              // 1) Переинициализация
@@ -926,10 +948,10 @@
 		              } catch (_) { }
 		              idx++;
 
-		              // 5) Extras submenu
-		              var extrasIndex = idx;
-		              try {
-		                Lampa.SettingsApi.addParam({
+			              // 5) Extras submenu
+			              var extrasIndex = idx;
+			              try {
+			                Lampa.SettingsApi.addParam({
 		                  component: MAIN_COMPONENT,
 		                  param: { name: 'ap_extras', type: 'static', default: true },
 		                  field: { name: 'Дополнительные плагины', description: 'Открывает список disabled[] из bl.autoplugin.json.' },
@@ -942,25 +964,68 @@
 		                    } catch (_) { }
 		                  }
 		                });
-		              } catch (_) { }
-		              idx++;
+			              } catch (_) { }
+			              idx++;
 
-		              // X) Status (last, single item: help + raw)
-		              try {
-		                Lampa.SettingsApi.addParam({
-		                  component: MAIN_COMPONENT,
-		                  param: { name: 'ap_status', type: 'static', values: '', default: '' },
-		                  field: { name: 'Статус', description: '' },
-		                  onRender: function (item) {
-		                    try {
-		                      var v = getStatusHelpString() + '\n' + getStatusInfoString();
-		                      if (window.$ && item) $('.settings-param__descr', item).text(v);
-		                    } catch (_) { }
-		                  }
-		                });
-		              } catch (_) { }
-		              idx++;
-		            }
+			              // 6) Log viewer (popup)
+			              try {
+			                Lampa.SettingsApi.addParam({
+			                  component: MAIN_COMPONENT,
+			                  param: { name: 'ap_log_viewer', type: 'static', default: true },
+			                  field: { name: 'Лог AutoPlugin Installer', description: 'Открывает popup-лог в режиме просмотра.' },
+			                  onRender: function (item) {
+			                    try {
+			                      if (!item || !item.on) return;
+			                      item.on('hover:enter', function () {
+			                        try {
+			                          if (window.BL && BL.Log && typeof BL.Log.openViewer === 'function') BL.Log.openViewer();
+			                          else if (window.BL && BL.Log && typeof BL.Log.ensurePopup === 'function') {
+			                            BL.Log.ensurePopup();
+			                            if (BL.Log && BL.Log.showInfo) BL.Log.showInfo('AutoPlugin', 'viewer', 'BL.Log.openViewer missing');
+			                          }
+			                        } catch (_) { }
+			                      });
+			                    } catch (_) { }
+			                  }
+			                });
+			              } catch (_) { }
+			              idx++;
+
+			              // X) Status (last, help + raw inside one item)
+			              try {
+			                Lampa.SettingsApi.addParam({
+			                  component: MAIN_COMPONENT,
+			                  param: { name: 'ap_status', type: 'static', values: '', default: '' },
+			                  field: { name: 'Статус', description: '' },
+			                  onRender: function (item) {
+			                    try {
+			                      if (!window.$ || !item) return;
+
+			                      var $d = item.find('.settings-param__descr');
+			                      if (!$d.length) {
+			                        item.append('<div class="settings-param__descr"></div>');
+			                        $d = item.find('.settings-param__descr');
+			                      }
+
+			                      var doneFlag = String(lsGet(AP_KEYS.done) || '') === '1';
+			                      var sigOk = String(lsGet(AP_KEYS.sig) || '') === calcPluginsSig();
+			                      var ts = toInt(lsGet(AP_KEYS.ts), 0);
+
+			                      var line1 = 'done=' + (doneFlag ? '1' : '0') + ' — ' + (doneFlag ? 'первичная автоустановка выполнена' : 'первичная автоустановка не выполнена') +
+			                        '; sig=' + (sigOk ? 'ok' : 'no') + ' — ' + (sigOk ? 'подпись списка совпадает' : 'подпись списка отличается');
+			                      var line2 = ts ? ('ts=' + new Date(ts).toLocaleString() + ' — время фиксации') : '';
+			                      var raw = getStatusInfoString();
+
+			                      $d.empty();
+			                      $d.append($('<div></div>').text(line1));
+			                      if (line2) $d.append($('<div></div>').text(line2));
+			                      $d.append($('<div></div>').text(raw));
+			                    } catch (_) { }
+			                  }
+			                });
+			              } catch (_) { }
+			              idx++;
+			            }
 
 		            // Seed main screen params (do NOT open Settings here).
 		            resetMainParams();

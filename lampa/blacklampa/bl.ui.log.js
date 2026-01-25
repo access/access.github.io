@@ -28,14 +28,32 @@
 	  var popupTimer = null;
 	  var lastShowTs = 0;
 
-	  var popupBodyEl = null;
-	  var popupScrollEl = null;
-	  var popupHeaderEl = null;
-	  var popupHeaderHeight = 0;
-	  var popupResizeTimer = null;
-	  var popupProgressFillEl = null;
-	  var popupProgressFillBottomEl = null;
-	  var popupProgressSeq = 0;
+		  var popupBodyEl = null;
+		  var popupScrollEl = null;
+		  var popupHeaderEl = null;
+		  var popupHeaderHeight = 0;
+		  var popupResizeTimer = null;
+		  var popupProgressTopEl = null;
+		  var popupProgressBottomEl = null;
+		  var popupProgressFillEl = null;
+		  var popupProgressFillBottomEl = null;
+		  var popupProgressSeq = 0;
+		  var popupCloseEl = null;
+
+		  // Viewer-mode (manual open from settings): temporary, must NOT affect normal log behavior.
+		  var viewerMode = false;
+		  var viewerPrevPopupOpacity = '';
+		  var viewerPrevPopupPointerEvents = '';
+		  var viewerPrevPopupUserSelect = '';
+		  var viewerPrevPopupTouchAction = '';
+		  var viewerPrevScrollPointerEvents = '';
+		  var viewerPrevScrollUserSelect = '';
+		  var viewerPrevScrollTouchAction = '';
+		  var viewerPrevProgressTopDisplay = '';
+		  var viewerPrevProgressBottomDisplay = '';
+		  var viewerScrollLocked = false;
+		  var viewerKeyHandlerInstalled = false;
+		  var viewerScrollHandlerInstalled = false;
 
   var TAG_STYLE = {
     'ERR': { color: '#ff4d4f' },
@@ -104,10 +122,10 @@
 	    } catch (_) { }
 	  }
 
-	  function ensurePopup() {
-	    if (LOG_MODE === 0) return null;
-	    if (popupEl) return popupEl;
-	    if (!document || !document.body) return null;
+		  function ensurePopup(force) {
+		    if (LOG_MODE === 0 && !force && !viewerMode) return null;
+		    if (popupEl) return popupEl;
+		    if (!document || !document.body) return null;
 
     var el = document.createElement('div');
     // Compatibility note:
@@ -195,8 +213,8 @@
 	      'pointer-events:none'
 	    ].join(';');
 
-	    var progressBottomFill = document.createElement('div');
-	    progressBottomFill.id = '__autoplugin_popup_progress_bottom_fill';
+		    var progressBottomFill = document.createElement('div');
+		    progressBottomFill.id = '__autoplugin_popup_progress_bottom_fill';
 	    progressBottomFill.style.cssText = [
 	      'height:100%',
 	      'width:100%',
@@ -251,19 +269,49 @@
 
 	    el.appendChild(progress);
 	    headerWrap.appendChild(title);
-	    bodyWrap.appendChild(body);
-	    el.appendChild(headerWrap);
-	    el.appendChild(bodyWrap);
-	    el.appendChild(progressBottom);
-	    document.body.appendChild(el);
+		    bodyWrap.appendChild(body);
+		    el.appendChild(headerWrap);
+		    el.appendChild(bodyWrap);
+		    el.appendChild(progressBottom);
 
-	    popupEl = el;
-	    popupBodyEl = body;
-		    popupScrollEl = bodyWrap;
-		    popupHeaderEl = headerWrap;
-		    popupHeaderHeight = headerWrap.offsetHeight || popupHeaderHeight;
-		    popupProgressFillEl = progressFill;
-		    popupProgressFillBottomEl = progressBottomFill;
+		    // Viewer-mode only close button (hidden by default; enabled in openViewer()).
+		    var closeBtn = document.createElement('div');
+		    closeBtn.id = '__autoplugin_popup_close';
+		    closeBtn.textContent = '× Закрыть';
+		    closeBtn.style.cssText = [
+		      'position:absolute',
+		      'top:8px',
+		      'right:10px',
+		      'z-index:4',
+		      'padding:4px 8px',
+		      'background:rgba(255,255,255,0.12)',
+		      'border:1px solid rgba(255,255,255,0.18)',
+		      'border-radius:8px',
+		      'pointer-events:auto',
+		      'cursor:pointer',
+		      'font:' + POPUP_FONT,
+		      'font-weight:700',
+		      'opacity:.9',
+		      'display:none',
+		      'user-select:none',
+		      '-webkit-user-select:none'
+		    ].join(';');
+		    closeBtn.addEventListener('click', function () {
+		      try { if (BL.Log && typeof BL.Log.closeViewer === 'function') BL.Log.closeViewer(); } catch (_) { }
+		    }, true);
+		    el.appendChild(closeBtn);
+		    document.body.appendChild(el);
+
+		    popupEl = el;
+		    popupBodyEl = body;
+			    popupScrollEl = bodyWrap;
+			    popupHeaderEl = headerWrap;
+			    popupHeaderHeight = headerWrap.offsetHeight || popupHeaderHeight;
+			    popupProgressTopEl = progress;
+			    popupProgressBottomEl = progressBottom;
+			    popupProgressFillEl = progressFill;
+			    popupProgressFillBottomEl = progressBottomFill;
+			    popupCloseEl = closeBtn;
 
 	    updatePopupLayout();
 	    try {
@@ -306,14 +354,15 @@
     return row;
   }
 
-  function appendPopupLine(line, tag) {
-    if (LOG_MODE === 0) return;
-    var el = ensurePopup();
-    var scrollEl = popupScrollEl;
-    if (!el || !popupBodyEl || !scrollEl) return;
+	  function appendPopupLine(line, tag) {
+	    if (LOG_MODE === 0) return;
+	    var el = ensurePopup();
+	    var scrollEl = popupScrollEl;
+	    if (!el || !popupBodyEl || !scrollEl) return;
 
-    // Autoscroll only if user is already at bottom.
-    var shouldScroll = isAtBottom(scrollEl);
+	    // Autoscroll only if user is already at bottom.
+	    var shouldScroll = isAtBottom(scrollEl);
+	    if (viewerMode && viewerScrollLocked) shouldScroll = false;
 
     popupBodyEl.appendChild(makeRow(line, tag));
 
@@ -372,19 +421,28 @@
 	    } else setTimeout(start, 0);
 	  }
 
-	  function hidePopup() {
-	    if (!popupEl) return;
-	    popupEl.style.display = 'none';
-	  }
+		  function hidePopup() {
+		    if (!popupEl) return;
+		    if (viewerMode) return;
+		    popupEl.style.display = 'none';
+		  }
 
-	  function armPopupLifetime(reason) {
-	    if (LOG_MODE === 0) return;
-	    var el = ensurePopup();
-	    var scrollEl = popupScrollEl;
-	    if (!el || !scrollEl) return;
+		  function armPopupLifetime(reason) {
+		    if (LOG_MODE === 0) return;
+		    var el = ensurePopup();
+		    var scrollEl = popupScrollEl;
+		    if (!el || !scrollEl) return;
 
-	    var now = Date.now();
-	    var wasVisible = (el.style.display !== 'none');
+		    if (viewerMode) {
+		      // Viewer-mode: keep popup visible, no timers/progressbars.
+		      el.style.display = 'block';
+		      updatePopupLayout();
+		      if (popupTimer) { clearTimeout(popupTimer); popupTimer = null; }
+		      return;
+		    }
+
+		    var now = Date.now();
+		    var wasVisible = (el.style.display !== 'none');
 
 	    // Extend lifetime only when we really re-arm (throttled on bursts).
 	    if (wasVisible && lastShowTs && (now - lastShowTs) < SHOW_THROTTLE_MS) return;
@@ -402,7 +460,7 @@
 	    }, POPUP_MS);
 
 	    // Single source of truth: progressbars represent the same POPUP_MS as the hide timer.
-	    startProgressBars(POPUP_MS);
+		    startProgressBars(POPUP_MS);
 
 		    // Optional diagnostics (console only; avoids recursion into popup logger).
 		    safe(function () {
@@ -512,12 +570,151 @@
 
   BL.Log.mode = function () { return LOG_MODE; };
 
-  BL.Log.ensurePopup = ensurePopup;
-  BL.Log.hide = function () { safe(function () { if (popupEl) popupEl.style.display = 'none'; }); };
+		  BL.Log.ensurePopup = ensurePopup;
+		  BL.Log.hide = function () { safe(function () { if (popupEl && !viewerMode) popupEl.style.display = 'none'; }); };
 
-  BL.Log.showError = function (source, message, extra) { showLine('ERR', source, message, extra); };
-  BL.Log.showWarn = function (source, message, extra) { showLine('WRN', source, message, extra); };
-  BL.Log.showOk = function (source, message, extra) { showLine('OK', source, message, extra); };
+		  function stopProgressBars() {
+		    popupProgressSeq++;
+		    safe(function () {
+		      if (popupProgressFillEl) {
+		        popupProgressFillEl.style.transition = 'none';
+		        popupProgressFillEl.style.transform = 'scaleX(1)';
+		      }
+		      if (popupProgressFillBottomEl) {
+		        popupProgressFillBottomEl.style.transition = 'none';
+		        popupProgressFillBottomEl.style.transform = 'scaleX(1)';
+		      }
+		    });
+		  }
+
+		  function isBackKeyCode(k) {
+		    return k === 27 || k === 8 || k === 461 || k === 10009;
+		  }
+
+		  function isViewerAtBottom(el) {
+		    try { return (el.scrollTop + el.clientHeight) >= (el.scrollHeight - 2); }
+		    catch (_) { return true; }
+		  }
+
+		  function viewerKeyHandler(e) {
+		    if (!viewerMode) return;
+		    var k = e.keyCode || 0;
+		    var el = popupScrollEl;
+		    if (!el) return;
+
+		    // Back/Return closes viewer.
+		    if (isBackKeyCode(k)) {
+		      e.preventDefault();
+		      e.stopImmediatePropagation();
+		      safe(function () { if (BL.Log && typeof BL.Log.closeViewer === 'function') BL.Log.closeViewer(); });
+		      return;
+		    }
+
+		    // Remote scroll (UP/DOWN). Also support media-style 19/20.
+		    if (k === 38 || k === 19 || k === 40 || k === 20) {
+		      e.preventDefault();
+		      e.stopImmediatePropagation();
+		      var step = 120;
+		      if (k === 38 || k === 19) {
+		        el.scrollTop = Math.max(0, el.scrollTop - step);
+		        viewerScrollLocked = true;
+		      } else {
+		        el.scrollTop = Math.min(el.scrollHeight, el.scrollTop + step);
+		        viewerScrollLocked = !isViewerAtBottom(el);
+		      }
+		    }
+		  }
+
+		  function viewerScrollHandler() {
+		    if (!viewerMode || !popupScrollEl) return;
+		    viewerScrollLocked = !isViewerAtBottom(popupScrollEl);
+		  }
+
+		  function setViewerMode(on) {
+		    try {
+		      if (on === viewerMode) return;
+		      viewerMode = Boolean(on);
+
+		      var el = ensurePopup(true);
+		      if (!el || !popupScrollEl) return;
+
+		      // Restore
+		      if (!viewerMode) {
+		        if (viewerKeyHandlerInstalled) {
+		          viewerKeyHandlerInstalled = false;
+		          try { window.removeEventListener('keydown', viewerKeyHandler, true); } catch (_) { }
+		        }
+		        if (viewerScrollHandlerInstalled) {
+		          viewerScrollHandlerInstalled = false;
+		          try { popupScrollEl.removeEventListener('scroll', viewerScrollHandler, true); } catch (_) { }
+		        }
+
+		        try { el.style.opacity = viewerPrevPopupOpacity; } catch (_) { }
+		        try { el.style.pointerEvents = viewerPrevPopupPointerEvents; } catch (_) { }
+		        try { el.style.userSelect = viewerPrevPopupUserSelect; } catch (_) { }
+		        try { el.style.touchAction = viewerPrevPopupTouchAction; } catch (_) { }
+		        try { popupScrollEl.style.pointerEvents = viewerPrevScrollPointerEvents; } catch (_) { }
+		        try { popupScrollEl.style.userSelect = viewerPrevScrollUserSelect; } catch (_) { }
+		        try { popupScrollEl.style.touchAction = viewerPrevScrollTouchAction; } catch (_) { }
+		        try { if (popupProgressTopEl) popupProgressTopEl.style.display = viewerPrevProgressTopDisplay; } catch (_) { }
+		        try { if (popupProgressBottomEl) popupProgressBottomEl.style.display = viewerPrevProgressBottomDisplay; } catch (_) { }
+		        try { if (popupCloseEl) popupCloseEl.style.display = 'none'; } catch (_) { }
+
+		        viewerScrollLocked = false;
+		        safe(function () { if (popupEl) popupEl.style.display = 'none'; });
+		        return;
+		      }
+
+		      // Enable viewer mode
+		      viewerPrevPopupOpacity = String(el.style.opacity || '');
+		      viewerPrevPopupPointerEvents = String(el.style.pointerEvents || '');
+		      viewerPrevPopupUserSelect = String(el.style.userSelect || '');
+		      viewerPrevPopupTouchAction = String(el.style.touchAction || '');
+		      viewerPrevScrollPointerEvents = String(popupScrollEl.style.pointerEvents || '');
+		      viewerPrevScrollUserSelect = String(popupScrollEl.style.userSelect || '');
+		      viewerPrevScrollTouchAction = String(popupScrollEl.style.touchAction || '');
+		      viewerPrevProgressTopDisplay = popupProgressTopEl ? String(popupProgressTopEl.style.display || '') : '';
+		      viewerPrevProgressBottomDisplay = popupProgressBottomEl ? String(popupProgressBottomEl.style.display || '') : '';
+
+		      // Disable auto-close timer and progressbars
+		      if (popupTimer) { clearTimeout(popupTimer); popupTimer = null; }
+		      stopProgressBars();
+		      try { if (popupProgressTopEl) popupProgressTopEl.style.display = 'none'; } catch (_) { }
+		      try { if (popupProgressBottomEl) popupProgressBottomEl.style.display = 'none'; } catch (_) { }
+
+		      // Visual tweaks (requested)
+		      try { el.style.opacity = '0.77'; } catch (_) { }
+
+		      // Allow viewer interactions (scroll / close)
+		      try { el.style.pointerEvents = 'auto'; } catch (_) { }
+		      try { el.style.touchAction = 'auto'; } catch (_) { }
+		      try { popupScrollEl.style.pointerEvents = 'auto'; } catch (_) { }
+		      try { popupScrollEl.style.touchAction = 'auto'; } catch (_) { }
+		      try { if (popupCloseEl) popupCloseEl.style.display = 'block'; } catch (_) { }
+
+		      // Show popup and bind handlers
+		      el.style.display = 'block';
+		      updatePopupLayout();
+		      viewerScrollLocked = !isViewerAtBottom(popupScrollEl);
+
+		      if (!viewerKeyHandlerInstalled) {
+		        viewerKeyHandlerInstalled = true;
+		        try { window.addEventListener('keydown', viewerKeyHandler, true); } catch (_) { }
+		      }
+		      if (!viewerScrollHandlerInstalled) {
+		        viewerScrollHandlerInstalled = true;
+		        try { popupScrollEl.addEventListener('scroll', viewerScrollHandler, true); } catch (_) { }
+		      }
+		    } catch (_) { }
+		  }
+
+		  BL.Log.setViewerMode = setViewerMode;
+		  BL.Log.openViewer = function () { setViewerMode(true); };
+		  BL.Log.closeViewer = function () { setViewerMode(false); };
+
+		  BL.Log.showError = function (source, message, extra) { showLine('ERR', source, message, extra); };
+		  BL.Log.showWarn = function (source, message, extra) { showLine('WRN', source, message, extra); };
+		  BL.Log.showOk = function (source, message, extra) { showLine('OK', source, message, extra); };
   BL.Log.showInfo = function (source, message, extra) { showLine('INF', source, message, extra); };
   BL.Log.showDbg = function (source, message, extra) { showLine('DBG', source, message, extra); };
 
