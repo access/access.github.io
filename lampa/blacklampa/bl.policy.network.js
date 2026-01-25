@@ -33,6 +33,316 @@
   var BLOCK_STATS_RE =
     /(^|\.)((scorecardresearch\.com)|(quantserve\.com)|(cdn\.quantserve\.com)|(hotjar\.com)|(static\.hotjar\.com)|(mixpanel\.com)|(api\.mixpanel\.com)|(sentry\.io)|(o\\d+\\.ingest\\.sentry\\.io)|(datadoghq\\.com)|(segment\\.com)|(api\\.segment\\.io)|(amplitude\\.com)|(api\\.amplitude\\.com)|(branch\\.io)|(app-measurement\\.com))$/i;
 
+  // ============================================================================
+  // Blocklist settings (localStorage)
+  // ============================================================================
+  var LS_BUILTIN_YANDEX = 'bl_net_block_yandex_v1';
+  var LS_BUILTIN_GOOGLE = 'bl_net_block_google_v1';
+  var LS_BUILTIN_STATS = 'bl_net_block_stats_v1';
+  var LS_BUILTIN_BWA_CORS = 'bl_net_block_bwa_cors_v1';
+  var LS_USER_RULES = 'bl_net_user_rules_v1';
+
+  function lsGet(key) { try { return localStorage.getItem(String(key)); } catch (_) { return null; } }
+  function lsSet(key, val) { try { localStorage.setItem(String(key), String(val)); } catch (_) { } }
+
+  function lsGetBool(key, def) {
+    try {
+      var v = lsGet(key);
+      if (v == null || v === '') return !!def;
+      var s = String(v).toLowerCase();
+      if (s === '0' || s === 'false' || s === 'off' || s === 'no') return false;
+      return true;
+    } catch (_) {
+      return !!def;
+    }
+  }
+
+  function lsSetBool(key, on) { lsSet(key, on ? '1' : '0'); }
+
+  var BUILTIN_RULES = [
+    { id: 'yandex', title: 'Yandex', reason: 'Yandex', lsKey: LS_BUILTIN_YANDEX, description: 'Блокировка доменов Yandex/ya.ru/yastatic.' },
+    { id: 'google', title: 'Google/YouTube', reason: 'Google/YouTube', lsKey: LS_BUILTIN_GOOGLE, description: 'Блокировка Google/YouTube/Analytics/Ads.' },
+    { id: 'stats', title: 'Statistics', reason: 'Statistics', lsKey: LS_BUILTIN_STATS, description: 'Блокировка трекеров/статистики.' },
+    { id: 'bwa_cors', title: 'BWA:CORS', reason: 'BWA:CORS', lsKey: LS_BUILTIN_BWA_CORS, description: 'Блокировка bwa.to /cors/check.' }
+  ];
+
+  function getBuiltinRule(id) {
+    try {
+      var t = String(id || '');
+      for (var i = 0; i < BUILTIN_RULES.length; i++) if (BUILTIN_RULES[i].id === t) return BUILTIN_RULES[i];
+    } catch (_) { }
+    return null;
+  }
+
+  function isBuiltinEnabled(id) {
+    var r = getBuiltinRule(id);
+    if (!r) return true;
+    return lsGetBool(r.lsKey, true);
+  }
+
+  function setBuiltinEnabled(id, enabled) {
+    var r = getBuiltinRule(id);
+    if (!r) return false;
+    lsSetBool(r.lsKey, !!enabled);
+    return true;
+  }
+
+  function getBuiltinRulesForUi() {
+    var out = [];
+    try {
+      for (var i = 0; i < BUILTIN_RULES.length; i++) {
+        var r = BUILTIN_RULES[i];
+        out.push({
+          id: r.id,
+          title: r.title,
+          description: r.description || '',
+          enabled: isBuiltinEnabled(r.id)
+        });
+      }
+    } catch (_) { }
+    return out;
+  }
+
+  // ============================================================================
+  // User rules (localStorage)
+  // ============================================================================
+  var __userRulesCache = null;
+  var __userRulesCacheRaw = null;
+
+  function isPlainObject(x) {
+    try { return !!x && typeof x === 'object' && !Array.isArray(x); } catch (_) { return false; }
+  }
+
+  function makeRuleId() {
+    try {
+      var t = Date.now().toString(36);
+      var r = Math.random().toString(36).slice(2, 7);
+      return 'r_' + t + '_' + r;
+    } catch (_) {
+      return 'r_' + String(+new Date());
+    }
+  }
+
+  function escapeRe(s) {
+    try { return String(s || '').replace(/[.*+?^${}()|[\]\\]/g, '\\$&'); }
+    catch (_) { try { return String(s || ''); } catch (__e) { return ''; } }
+  }
+
+  function matchPattern(urlStr, pattern) {
+    try {
+      var u = String(urlStr || '');
+      var p = String(pattern || '').trim();
+      if (!u || !p) return false;
+
+      // /regex/i
+      if (p.charAt(0) === '/' && p.lastIndexOf('/') > 1) {
+        var last = p.lastIndexOf('/');
+        var body = p.slice(1, last);
+        var flags = p.slice(last + 1);
+        // Only treat as regex when flags look valid; otherwise it's a normal substring like "/path/to".
+        if (!flags || /^[gimsuy]*$/.test(flags)) {
+          if (!flags) flags = 'i';
+          try { return new RegExp(body, flags).test(u); } catch (_) { return false; }
+        }
+      }
+
+      // wildcard (*)
+      if (p.indexOf('*') !== -1) {
+        var re = escapeRe(p).replace(/\\\*/g, '.*');
+        try { return new RegExp(re, 'i').test(u); } catch (_) { return false; }
+      }
+
+      // substring
+      return u.toLowerCase().indexOf(p.toLowerCase()) !== -1;
+    } catch (_) {
+      return false;
+    }
+  }
+
+  var ADV_CT_MAP = {
+    'application/json': 'application/json; charset=utf-8',
+    'application/javascript': 'application/javascript; charset=utf-8',
+    'text/css': 'text/css; charset=utf-8',
+    'text/html': 'text/html; charset=utf-8',
+    'image/svg+xml': 'image/svg+xml; charset=utf-8',
+    'image/png': 'image/png',
+    'image/jpeg': 'image/jpeg',
+    'image/gif': 'image/gif',
+    'image/webp': 'image/webp',
+    'image/x-icon': 'image/x-icon',
+    'text/plain': 'text/plain; charset=utf-8'
+  };
+
+  function normalizeAdvancedContentType(ct) {
+    try {
+      var s = String(ct || '').trim();
+      if (!s) return '';
+      var base = s.split(';')[0].trim().toLowerCase();
+      return ADV_CT_MAP[base] || s;
+    } catch (_) {
+      return '';
+    }
+  }
+
+  function normalizeBodyMode(m) {
+    try {
+      var s = String(m || '').toLowerCase();
+      if (s === 'minimal') return 'minimal';
+      if (s === 'empty') return 'empty';
+      return '';
+    } catch (_) {
+      return '';
+    }
+  }
+
+  function normalizeUserRule(rule, idx) {
+    try {
+      if (!isPlainObject(rule)) return null;
+      var pat = '';
+      try { pat = String(rule.pattern || '').trim(); } catch (_) { pat = ''; }
+      if (!pat) return null;
+
+      var id = '';
+      try { id = String(rule.id || '').trim(); } catch (_) { id = ''; }
+      if (!id) id = 'legacy_' + String(idx != null ? idx : makeRuleId());
+
+      var type = 'simple';
+      try { type = String(rule.type || 'simple'); } catch (_) { type = 'simple'; }
+      if (type !== 'advanced') type = 'simple';
+
+      var enabled = true;
+      try {
+        if (typeof rule.enabled === 'boolean') enabled = rule.enabled;
+        else if (typeof rule.enabled === 'number') enabled = rule.enabled !== 0;
+        else if (typeof rule.enabled === 'string') enabled = !/^(0|false|off|no)$/i.test(String(rule.enabled || ''));
+        else enabled = !!rule.enabled;
+      } catch (_) { enabled = true; }
+
+      var out = { id: id, enabled: enabled, pattern: pat, type: type };
+
+      if (type === 'advanced') {
+        var ct = '';
+        var bm = '';
+        try { if (rule.advanced && rule.advanced.contentType) ct = String(rule.advanced.contentType || ''); } catch (_) { ct = ''; }
+        try { if (rule.advanced && rule.advanced.bodyMode) bm = String(rule.advanced.bodyMode || ''); } catch (_) { bm = ''; }
+        ct = normalizeAdvancedContentType(ct);
+        bm = normalizeBodyMode(bm) || 'empty';
+        out.advanced = { contentType: ct, bodyMode: bm };
+      }
+
+      return out;
+    } catch (_) {
+      return null;
+    }
+  }
+
+  function loadUserRules() {
+    var raw = null;
+    try { raw = lsGet(LS_USER_RULES); } catch (_) { raw = null; }
+    if (raw === __userRulesCacheRaw && __userRulesCache) return __userRulesCache;
+
+    __userRulesCacheRaw = raw;
+    var arr = [];
+    try { arr = raw ? JSON.parse(raw) : []; } catch (_) { arr = []; }
+    if (!Array.isArray(arr)) arr = [];
+
+    var out = [];
+    var touched = false;
+    for (var i = 0; i < arr.length; i++) {
+      var r = normalizeUserRule(arr[i], i);
+      if (r) {
+        out.push(r);
+        try {
+          if (!arr[i] || !arr[i].id || String(arr[i].id || '').trim() !== String(r.id)) touched = true;
+        } catch (_) { }
+      }
+    }
+
+    __userRulesCache = out;
+    if (touched) {
+      try { saveUserRules(out); } catch (_) { }
+    }
+    return out;
+  }
+
+  function saveUserRules(list) {
+    try {
+      var out = Array.isArray(list) ? list : [];
+      var raw = JSON.stringify(out);
+      __userRulesCache = out;
+      __userRulesCacheRaw = raw;
+      lsSet(LS_USER_RULES, raw);
+    } catch (_) { }
+  }
+
+  function getUserRulesForUi() {
+    var list = [];
+    try { list = loadUserRules(); } catch (_) { list = []; }
+    var out = [];
+    for (var i = 0; i < list.length; i++) {
+      try {
+        var r = list[i];
+        out.push({
+          id: String(r.id || ''),
+          enabled: !!r.enabled,
+          pattern: String(r.pattern || ''),
+          type: String(r.type || 'simple'),
+          advanced: r.advanced ? { contentType: String(r.advanced.contentType || ''), bodyMode: String(r.advanced.bodyMode || '') } : null
+        });
+      } catch (_) { }
+    }
+    return out;
+  }
+
+  function addUserRule(rule) {
+    try {
+      var r = normalizeUserRule(rule, null);
+      if (!r) return null;
+      if (!r.id || r.id.indexOf('legacy_') === 0) r.id = makeRuleId();
+
+      var list = loadUserRules();
+      list.push(r);
+      saveUserRules(list);
+      return r.id;
+    } catch (_) {
+      return null;
+    }
+  }
+
+  function setUserRuleEnabled(id, enabled) {
+    try {
+      var t = String(id || '');
+      if (!t) return false;
+      var list = loadUserRules();
+      for (var i = 0; i < list.length; i++) {
+        if (String(list[i].id || '') === t) {
+          list[i].enabled = !!enabled;
+          saveUserRules(list);
+          return true;
+        }
+      }
+    } catch (_) { }
+    return false;
+  }
+
+  function removeUserRule(id) {
+    try {
+      var t = String(id || '');
+      if (!t) return false;
+      var list = loadUserRules();
+      var out = [];
+      var removed = false;
+      for (var i = 0; i < list.length; i++) {
+        if (String(list[i].id || '') === t) removed = true;
+        else out.push(list[i]);
+      }
+      if (removed) saveUserRules(out);
+      return removed;
+    } catch (_) {
+      return false;
+    }
+  }
+
   function isBwaCorsCheck(url) {
     try {
       var host = String(url.hostname || '').toLowerCase();
@@ -48,15 +358,56 @@
   function classifyBlocked(url) {
     try {
       if (!url) return null;
-      if (isBwaCorsCheck(url)) return 'BWA:CORS';
+      if (isBwaCorsCheck(url) && isBuiltinEnabled('bwa_cors')) return 'BWA:CORS';
 
       var h = String(url.hostname || '').toLowerCase();
       if (!h) return null;
 
-      if (BLOCK_YANDEX_RE.test(h)) return 'Yandex';
-      if (BLOCK_GOOGLE_YT_RE.test(h)) return 'Google/YouTube';
-      if (BLOCK_STATS_RE.test(h)) return 'Statistics';
+      if (isBuiltinEnabled('yandex') && BLOCK_YANDEX_RE.test(h)) return 'Yandex';
+      if (isBuiltinEnabled('google') && BLOCK_GOOGLE_YT_RE.test(h)) return 'Google/YouTube';
+      if (isBuiltinEnabled('stats') && BLOCK_STATS_RE.test(h)) return 'Statistics';
 
+      return null;
+    } catch (_) {
+      return null;
+    }
+  }
+
+  function getBlockContext(u) {
+    try {
+      if (!u) return null;
+      var url = new URL(String(u), location.href);
+      if (url.protocol !== 'http:' && url.protocol !== 'https:') return null;
+
+      var urlAbs = '';
+      try { urlAbs = String(url.href || ''); } catch (_) { urlAbs = String(u || ''); }
+
+      // User rules first (more specific).
+      var ur = loadUserRules();
+      for (var i = 0; i < ur.length; i++) {
+        var r = ur[i];
+        if (!r || !r.enabled) continue;
+        if (!r.pattern) continue;
+        if (!matchPattern(urlAbs, r.pattern)) continue;
+
+        var ctx = { url: urlAbs, reason: 'User:' + String(r.id || i) };
+
+        if (r.type === 'advanced' && r.advanced) {
+          var ct = '';
+          var bm = '';
+          try { if (r.advanced.contentType) ct = String(r.advanced.contentType || ''); } catch (_) { ct = ''; }
+          try { if (r.advanced.bodyMode) bm = String(r.advanced.bodyMode || ''); } catch (_) { bm = ''; }
+          ct = normalizeAdvancedContentType(ct);
+          bm = normalizeBodyMode(bm);
+          if (ct) ctx.overrideContentType = ct;
+          if (bm) ctx.overrideBodyMode = bm;
+        }
+
+        return ctx;
+      }
+
+      var why = classifyBlocked(url);
+      if (why) return { url: urlAbs, reason: why };
       return null;
     } catch (_) {
       return null;
@@ -65,10 +416,8 @@
 
   function isBlockedUrl(u) {
     try {
-      if (!u) return null;
-      var url = new URL(String(u), location.href);
-      if (url.protocol !== 'http:' && url.protocol !== 'https:') return null;
-      return classifyBlocked(url);
+      var ctx = getBlockContext(u);
+      return ctx && ctx.reason ? String(ctx.reason) : null;
     } catch (_) {
       return null;
 	    }
@@ -84,6 +433,10 @@
 	    context = context || {};
 	    var urlStr = normalizeUrlString(context.url);
 	    var reason = String(context.reason || '');
+	    var overrideCt = '';
+	    var overrideBody = '';
+	    try { overrideCt = normalizeAdvancedContentType(context.overrideContentType || ''); } catch (_) { overrideCt = ''; }
+	    try { overrideBody = normalizeBodyMode(context.overrideBodyMode || ''); } catch (_) { overrideBody = ''; }
 
 	    var contentType = 'text/plain; charset=utf-8';
 	    var bodyText = '';
@@ -143,6 +496,18 @@
 	      } else {
 	        contentType = 'text/plain; charset=utf-8';
 	        bodyText = '';
+	      }
+	    } catch (_) { }
+
+	    // Advanced overrides (user rules).
+	    try { if (overrideCt) contentType = overrideCt; } catch (_) { }
+	    try {
+	      if (overrideBody === 'empty') bodyText = '';
+	      else if (overrideBody === 'minimal') {
+	        var base = String(contentType || '').split(';')[0].trim().toLowerCase();
+	        if (base === 'application/json') bodyText = '{}';
+	        else if (base === 'image/svg+xml') bodyText = '<svg xmlns="http://www.w3.org/2000/svg"></svg>';
+	        else bodyText = '';
 	      }
 	    } catch (_) { }
 
@@ -346,10 +711,13 @@
 	          return Promise.resolve(BL.Net.makeFakeOkResponse({ url: u, type: 'fetch', reason: 'CUB:blacklist' }));
 	        }
 
-	        var why = isBlockedUrl(u);
-	        if (why) {
-	          BL.Net.logBlocked({ url: u, type: 'fetch', reason: why });
-	          return Promise.resolve(BL.Net.makeFakeOkResponse({ url: u, type: 'fetch', reason: why }));
+	        var ctx = getBlockContext(u);
+	        if (ctx && ctx.reason) {
+	          var c = { url: ctx.url || u, type: 'fetch', reason: ctx.reason };
+	          try { if (ctx.overrideContentType) c.overrideContentType = ctx.overrideContentType; } catch (_) { }
+	          try { if (ctx.overrideBodyMode) c.overrideBodyMode = ctx.overrideBodyMode; } catch (_) { }
+	          BL.Net.logBlocked(c);
+	          return Promise.resolve(BL.Net.makeFakeOkResponse(c));
 	        }
 	        return origFetch(input, init);
 	      };
@@ -363,7 +731,7 @@
       XHR.prototype.open = function (method, url) {
         this.__ap_url = url;
         this.__ap_mock_cub_blacklist = isCubBlacklistUrl(url);
-        this.__ap_block_reason = isBlockedUrl(url);
+        this.__ap_block_ctx = getBlockContext(url);
         return origOpen.apply(this, arguments);
       };
 
@@ -382,15 +750,18 @@
 	          return;
 	        }
 
-	        if (this.__ap_block_reason) {
+	        if (this.__ap_block_ctx && this.__ap_block_ctx.reason) {
 	          var u = this.__ap_url;
-	          var why = this.__ap_block_reason;
-	          BL.Net.logBlocked({ url: u, type: 'xhr', reason: why });
+	          var ctx = this.__ap_block_ctx;
+	          var c = { url: ctx.url || u, type: 'xhr', reason: ctx.reason };
+	          try { if (ctx.overrideContentType) c.overrideContentType = ctx.overrideContentType; } catch (_) { }
+	          try { if (ctx.overrideBodyMode) c.overrideBodyMode = ctx.overrideBodyMode; } catch (_) { }
+	          BL.Net.logBlocked(c);
 
 	          var xhr = this;
 	          setTimeout(function () {
 	            try {
-	              var fake = BL.Net.makeFakeOkResponse({ url: u, type: 'xhr', reason: why });
+	              var fake = BL.Net.makeFakeOkResponse(c);
 	              if (fake && fake.applyToXhr) fake.applyToXhr(xhr);
 	            } catch (_) { }
 	          }, 0);
@@ -403,10 +774,11 @@
 	    if (navigator.sendBeacon) {
 	      var origBeacon = navigator.sendBeacon.bind(navigator);
 	      navigator.sendBeacon = function (url, data) {
-	        var why = isBlockedUrl(url);
-	        if (why) {
-	          BL.Net.logBlocked({ url: url, type: 'beacon', reason: why });
-	          return !!BL.Net.makeFakeOkResponse({ url: url, type: 'beacon', reason: why });
+	        var ctx = getBlockContext(url);
+	        if (ctx && ctx.reason) {
+	          var c = { url: ctx.url || url, type: 'beacon', reason: ctx.reason };
+	          BL.Net.logBlocked(c);
+	          return !!BL.Net.makeFakeOkResponse(c);
 	        }
 	        return origBeacon(url, data);
 	      };
@@ -415,10 +787,11 @@
 	    if (window.WebSocket) {
 	      var OrigWS = window.WebSocket;
 	      window.WebSocket = function (url, protocols) {
-	        var why = isBlockedUrl(url);
-	        if (why) {
-	          BL.Net.logBlocked({ url: url, type: 'ws', reason: why });
-	          return BL.Net.makeFakeOkResponse({ url: url, type: 'ws', reason: why });
+	        var ctx = getBlockContext(url);
+	        if (ctx && ctx.reason) {
+	          var c = { url: ctx.url || url, type: 'ws', reason: ctx.reason };
+	          BL.Net.logBlocked(c);
+	          return BL.Net.makeFakeOkResponse(c);
 	        }
 	        return (protocols !== undefined) ? new OrigWS(url, protocols) : new OrigWS(url);
 	      };
@@ -430,4 +803,23 @@
 
   BL.PolicyNetwork.install = install;
   BL.PolicyNetwork.isBlockedUrl = isBlockedUrl;
+
+  // UI/API for AutoPlugin Installer → URL Blocklist
+  BL.PolicyNetwork.blocklist = BL.PolicyNetwork.blocklist || {};
+  BL.PolicyNetwork.blocklist.builtin = BL.PolicyNetwork.blocklist.builtin || {};
+  BL.PolicyNetwork.blocklist.user = BL.PolicyNetwork.blocklist.user || {};
+  BL.PolicyNetwork.blocklist.storage = BL.PolicyNetwork.blocklist.storage || {};
+
+  BL.PolicyNetwork.blocklist.builtin.getAll = getBuiltinRulesForUi;
+  BL.PolicyNetwork.blocklist.builtin.setEnabled = setBuiltinEnabled;
+  BL.PolicyNetwork.blocklist.user.getAll = getUserRulesForUi;
+  BL.PolicyNetwork.blocklist.user.add = addUserRule;
+  BL.PolicyNetwork.blocklist.user.setEnabled = setUserRuleEnabled;
+  BL.PolicyNetwork.blocklist.user.remove = removeUserRule;
+
+  BL.PolicyNetwork.blocklist.storage.lsBuiltinYandex = LS_BUILTIN_YANDEX;
+  BL.PolicyNetwork.blocklist.storage.lsBuiltinGoogle = LS_BUILTIN_GOOGLE;
+  BL.PolicyNetwork.blocklist.storage.lsBuiltinStats = LS_BUILTIN_STATS;
+  BL.PolicyNetwork.blocklist.storage.lsBuiltinBwaCors = LS_BUILTIN_BWA_CORS;
+  BL.PolicyNetwork.blocklist.storage.lsUserRules = LS_USER_RULES;
 })();

@@ -92,8 +92,35 @@
 		}
 	}
 
+	function filterStack(stack) {
+		try {
+			var s = String(stack || '');
+			if (!s) return '';
+			var lines = s.split('\n');
+			var out = [];
+
+			for (var i = 0; i < lines.length; i++) {
+				var ln = String(lines[i] || '');
+				if (!ln) continue;
+
+				// Drop our own handlers from stacks to keep "root cause" readable.
+				var l = ln.toLowerCase();
+				if (l.indexOf('blacklampa/bl.ui.log.js') !== -1) continue;
+				if (l.indexOf('bl.ui.log.js') !== -1) continue;
+
+				out.push(ln);
+			}
+
+			// If only the headline remains (no frames), suppress stack entirely.
+			if (out.length <= 1) return '';
+			return out.join('\n');
+		} catch (_) {
+			return '';
+		}
+	}
+
 	function normalizeError(err, context) {
-		var out = { msg: '', name: '', file: '', line: null, col: null, stack: '' };
+		var out = { msg: '', name: '', file: '', line: null, col: null, stack: '', eventType: '', target: '' };
 		try {
 			// window.onerror handler (ErrorEvent)
 			if (err && typeof err === 'object' && typeof err.message === 'string' && ('filename' in err || 'lineno' in err || 'colno' in err || 'error' in err)) {
@@ -107,17 +134,52 @@
 				}
 			}
 			// PromiseRejectionEvent
-			else if (err && typeof err === 'object' && ('reason' in err)) {
-				var r = err.reason;
-				out.msg = fmtErrSafe(r);
-				try { if (r && r.name) out.name = String(r.name); } catch (_) { }
-				try { if (r && r.stack) out.stack = String(r.stack); } catch (_) { }
-			}
-			// Error
-			else if (err && typeof err === 'object' && typeof err.name === 'string' && typeof err.message === 'string') {
-				out.name = String(err.name || '');
-				out.msg = String(err.message || 'error');
-				try { if (err.stack) out.stack = String(err.stack); } catch (_) { }
+				else if (err && typeof err === 'object' && ('reason' in err)) {
+					var r = err.reason;
+					out.msg = fmtErrSafe(r);
+					try { if (r && r.name) out.name = String(r.name); } catch (_) { }
+					try { if (r && r.stack) out.stack = String(r.stack); } catch (_) { }
+				}
+				// Resource error / generic Event
+				else if (err && typeof err === 'object' && typeof err.type === 'string') {
+					try { out.eventType = String(err.type || ''); } catch (_) { out.eventType = ''; }
+
+					var msg2 = '';
+					try { if (typeof err.message === 'string') msg2 = String(err.message || ''); } catch (_) { msg2 = ''; }
+					if (!msg2 || msg2 === '[object Event]') msg2 = 'event';
+					out.msg = msg2;
+
+					try { if (err.filename) out.file = String(err.filename); } catch (_) { }
+					try { if (typeof err.lineno === 'number') out.line = err.lineno; } catch (_) { }
+					try { if (typeof err.colno === 'number') out.col = err.colno; } catch (_) { }
+
+					// If underlying error exists, prefer its details/stack.
+					try {
+						if (err.error) {
+							try { if (err.error.name) out.name = String(err.error.name); } catch (_) { }
+							try { if (err.error.message) out.msg = String(err.error.message); } catch (_) { }
+							try { if (err.error.stack) out.stack = String(err.error.stack); } catch (_) { }
+						}
+					} catch (_) { }
+
+					// Target hints (tagName + src/href)
+					try {
+						var t = err.target || err.currentTarget;
+						if (t) {
+							var tag = '';
+							try { tag = t.tagName ? String(t.tagName).toLowerCase() : ''; } catch (_) { tag = ''; }
+							var u = '';
+							try { if (!u && typeof t.src === 'string') u = String(t.src); } catch (_) { }
+							try { if (!u && typeof t.href === 'string') u = String(t.href); } catch (_) { }
+							out.target = (tag ? tag : 'target') + (u ? (' ' + u) : '');
+						}
+					} catch (_) { }
+				}
+				// Error
+				else if (err && typeof err === 'object' && typeof err.name === 'string' && typeof err.message === 'string') {
+					out.name = String(err.name || '');
+					out.msg = String(err.message || 'error');
+					try { if (err.stack) out.stack = String(err.stack); } catch (_) { }
 			}
 			// string / other
 			else {
@@ -127,34 +189,39 @@
 			out.msg = 'error';
 		}
 
-		if (!out.msg) out.msg = 'error';
+			if (!out.msg) out.msg = 'error';
 
-		// Caller chain fallback (also helps when filename is missing).
-		var caller = '';
-		try { caller = String(new Error('trace').stack || ''); } catch (_) { caller = ''; }
-
-		if (!out.stack) out.stack = caller;
-		else if (!out.file && caller) {
-			var origShort = trimStack(out.stack, 10);
-			var callerShort = trimStack(caller, 6);
-			out.stack = origShort + '\n--- caller ---\n' + callerShort;
+			// Prefer root-cause stack, without our handler frames.
+			out.stack = trimStack(filterStack(out.stack), 18);
+			return out;
 		}
-
-		out.stack = trimStack(out.stack, 18);
-		return out;
-	}
 
 	function buildExceptionExtra(info, context) {
 		try {
+			var hasAt = !!(info.file || info.line != null || info.col != null);
+			var hasStack = !!(info.stack);
+
+			// Compact mode when there is no useful location/stack.
+			if (!hasAt && !hasStack) {
+				var parts = [];
+				if (info.eventType) parts.push('type=' + String(info.eventType));
+				else if (context && context.type) parts.push('type=' + String(context.type));
+				parts.push('message=' + String(info.msg || 'error'));
+				if (info.target) parts.push('target=' + String(info.target));
+				return parts.join(' | ');
+			}
+
 			var lines = [];
+			if (info.eventType) lines.push('type: ' + String(info.eventType));
 			lines.push('msg: ' + String(info.msg || 'error'));
 			if (info.name) lines.push('name: ' + String(info.name));
 
-			if (info.file || info.line != null || info.col != null) {
+			if (hasAt) {
 				lines.push('at: ' + String(info.file || '(no file)') + ':' + String(info.line != null ? info.line : '?') + ':' + String(info.col != null ? info.col : '?'));
 			}
+			if (info.target) lines.push('target: ' + String(info.target));
 
-			if (info.stack) lines.push('stack:\n' + String(info.stack));
+			if (hasStack) lines.push('stack:\n' + String(info.stack));
 			return lines.join('\n');
 		} catch (_) {
 			return '';

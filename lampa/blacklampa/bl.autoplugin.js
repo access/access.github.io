@@ -616,10 +616,13 @@
 
 			            // Internal navigation: keep ONLY one Settings component (MAIN_COMPONENT).
 			            // Submenus are rendered by rebuilding params and reopening MAIN_COMPONENT.
-			            var uiBackMainIndex = 0;
-			            var uiBackExtrasIndex = 0;
-			            var uiRoute = 'main'; // main | extras | detail
-			            var uiDetailMeta = null;
+				            var uiBackMainIndex = 0;
+				            var uiBackExtrasIndex = 0;
+				            var uiRoute = 'main'; // main | extras | detail
+				            var uiDetailMeta = null;
+				            var uiBackBlocklistIndex = 0;
+				            var uiBackUserRuleIndex = 0;
+				            var uiUserRuleId = '';
 
 			            function getSettingsFocusIndexSafe() {
 			              try {
@@ -696,16 +699,28 @@
 			              } catch (_) { }
 			            }
 
-			            function uiRefresh() {
-			              try {
-			                // Only refresh when our component is currently open; never open Settings from here.
-			                var cur = '';
-			                try { cur = (BL.Core && BL.Core.getQueryParam) ? String(BL.Core.getQueryParam('settings') || '') : ''; } catch (_) { cur = ''; }
-			                if (cur !== String(MAIN_COMPONENT)) return;
+				            function uiRefresh() {
+				              try {
+				                // Only refresh when our component is currently open; never open Settings from here.
+				                try {
+				                  if (window.Lampa && Lampa.Controller && typeof Lampa.Controller.enabled === 'function') {
+				                    var en = Lampa.Controller.enabled();
+				                    if (en && en.name && String(en.name) !== 'settings_component') return;
+				                  }
+				                } catch (_) { }
 
-			                var focus = getSettingsFocusIndexSafe();
+				                var cur = '';
+				                try { cur = (BL.Core && BL.Core.getQueryParam) ? String(BL.Core.getQueryParam('settings') || '') : ''; } catch (_) { cur = ''; }
+				                if (cur !== String(MAIN_COMPONENT)) return;
+
+				                var focus = getSettingsFocusIndexSafe();
 			                if (uiRoute === 'detail' && uiDetailMeta) openExtraDetailScreen(uiDetailMeta, uiBackExtrasIndex, focus);
 			                else if (uiRoute === 'extras') openExtrasScreen(uiBackMainIndex, focus);
+			                else if (uiRoute === 'blocklist') openBlocklistScreen(uiBackMainIndex, focus);
+			                else if (uiRoute === 'blocklist_builtin') openBlocklistBuiltinScreen(uiBackBlocklistIndex, focus);
+			                else if (uiRoute === 'blocklist_user') openBlocklistUserRulesScreen(uiBackBlocklistIndex, focus);
+			                else if (uiRoute === 'blocklist_user_detail' && uiUserRuleId) openBlocklistUserRuleDetailScreen(uiUserRuleId, uiBackUserRuleIndex, focus);
+			                else if (uiRoute === 'blocklist_add') openBlocklistAddScreen(uiBackBlocklistIndex, focus);
 			                else openMainScreen(focus);
 			              } catch (_) { }
 			            }
@@ -716,23 +731,37 @@
 
 			              if (!BL.Factory.__autopluginSettingsHookInstalled && window.Lampa && Lampa.Settings && Lampa.Settings.listener && Lampa.Settings.listener.follow) {
 			                BL.Factory.__autopluginSettingsHookInstalled = true;
-			                Lampa.Settings.listener.follow('open', function (e) {
-			                  try {
-			                    if (!e || !e.name) return;
-			                    if (e.name === 'main') {
-			                      uiRoute = 'main';
-			                      uiDetailMeta = null;
-			                      return;
-			                    }
-			                    if (e.name !== MAIN_COMPONENT) return;
-			                    if (e.params && e.params.__bl_ap_internal) return;
+				                Lampa.Settings.listener.follow('open', function (e) {
+				                  try {
+				                    if (!e || !e.name) return;
+				                    if (e.name === 'main') {
+				                      uiRoute = 'main';
+				                      uiDetailMeta = null;
+				                      uiBackMainIndex = 0;
+				                      uiBackExtrasIndex = 0;
+				                      uiBackBlocklistIndex = 0;
+				                      uiBackUserRuleIndex = 0;
+				                      uiUserRuleId = '';
+				                      return;
+				                    }
+				                    if (e.name !== MAIN_COMPONENT) return;
+				                    if (e.params && e.params.__bl_ap_internal) return;
 
-			                    // External open (or update() recreate): restore navigation params and start from root.
-			                    setTimeout(function () {
-			                      try { openMainScreen(0); } catch (_) { }
-			                    }, 0);
-			                  } catch (_) { }
-			                });
+				                    // External open (or update() recreate): restore navigation params and start from root.
+				                    setTimeout(function () {
+				                      try {
+				                        uiRoute = 'main';
+				                        uiDetailMeta = null;
+				                        uiBackMainIndex = 0;
+				                        uiBackExtrasIndex = 0;
+				                        uiBackBlocklistIndex = 0;
+				                        uiBackUserRuleIndex = 0;
+				                        uiUserRuleId = '';
+				                        openMainScreen(0);
+				                      } catch (_) { }
+				                    }, 0);
+				                  } catch (_) { }
+				                });
 			              }
 			            } catch (_) { }
 
@@ -951,13 +980,523 @@
 		                    });
 		                  } catch (_) { }
 		                }
-		              } catch (_) { }
-		            }
+			              } catch (_) { }
+			            }
+
+			            // ============================================================================
+			            // URL Blocklist (network policy UI)
+			            // ============================================================================
+			            var BL_RULE_ADD_PATTERN = 'bl_net_rule_add_pattern';
+			            var BL_RULE_ADD_TYPE = 'bl_net_rule_add_type';
+			            var BL_RULE_ADD_CT = 'bl_net_rule_add_ct';
+			            var BL_RULE_ADD_BODY = 'bl_net_rule_add_body';
+
+			            function getBlocklistApi() {
+			              try {
+			                if (window.BL && BL.PolicyNetwork && BL.PolicyNetwork.blocklist) return BL.PolicyNetwork.blocklist;
+			              } catch (_) { }
+			              return null;
+			            }
+
+			            function ensureStatusDot(item) {
+			              try {
+			                if (!window.$ || !item) return null;
+			                if (item.find('.settings-param__status').length === 0) item.append('<div class="settings-param__status one"></div>');
+			                return item.find('.settings-param__status');
+			              } catch (_) {
+			                return null;
+			              }
+			            }
+
+			            function setStatusDot($st, enabled) {
+			              try {
+			                if (!$st || !$st.length) return;
+			                if (enabled) $st.css('background-color', '').removeClass('error').addClass('active');
+			                else $st.removeClass('active error').css('background-color', 'rgba(255,255,255,0.35)');
+			              } catch (_) { }
+			            }
+
+			            function buildBlocklistScreen() {
+			              try {
+			                Lampa.SettingsApi.addParam({
+			                  component: MAIN_COMPONENT,
+			                  param: { name: 'bl_blocklist_builtin', type: 'static', default: true },
+			                  field: { name: 'Встроенные правила', description: 'Категории встроенных блокировок BlackLampa (toggle ON/OFF).' },
+			                  onRender: function (item) {
+			                    try {
+			                      if (!item || !item.on) return;
+			                      item.on('hover:enter', function () { openBlocklistBuiltinScreen(0, 0); });
+			                    } catch (_) { }
+			                  }
+			                });
+			                Lampa.SettingsApi.addParam({
+			                  component: MAIN_COMPONENT,
+			                  param: { name: 'bl_blocklist_user', type: 'static', default: true },
+			                  field: { name: 'Пользовательские URL', description: 'Список пользовательских URL/Pattern правил (simple/advanced).' },
+			                  onRender: function (item) {
+			                    try {
+			                      if (!item || !item.on) return;
+			                      item.on('hover:enter', function () { openBlocklistUserRulesScreen(1, 0); });
+			                    } catch (_) { }
+			                  }
+			                });
+			                Lampa.SettingsApi.addParam({
+			                  component: MAIN_COMPONENT,
+			                  param: { name: 'bl_blocklist_add', type: 'static', default: true },
+			                  field: { name: 'Добавить URL', description: 'Добавить пользовательское правило блокировки.' },
+			                  onRender: function (item) {
+			                    try {
+			                      if (!item || !item.on) return;
+			                      item.on('hover:enter', function () { openBlocklistAddScreen(2, 0); });
+			                    } catch (_) { }
+			                  }
+			                });
+			              } catch (_) { }
+			            }
+
+			            function openBlocklistScreen(backIndexMain, focusIndex) {
+			              try {
+			                uiRoute = 'blocklist';
+			                uiDetailMeta = null;
+			                uiUserRuleId = '';
+			                uiBackUserRuleIndex = 0;
+			                if (typeof backIndexMain === 'number') uiBackMainIndex = backIndexMain;
+
+			                resetMainParams();
+			                buildBlocklistScreen();
+
+			                if (!window.Lampa || !Lampa.Settings || !Lampa.Settings.create) return;
+			                var cp = {
+			                  onBack: function () { openMainScreen(uiBackMainIndex); },
+			                  __bl_ap_internal: true,
+			                  __bl_ap_route: 'blocklist'
+			                };
+			                if (typeof focusIndex === 'number' && focusIndex > 0) cp.last_index = focusIndex;
+			                Lampa.Settings.create(String(MAIN_COMPONENT), cp);
+			              } catch (_) { }
+			            }
+
+			            function buildBlocklistBuiltinScreen() {
+			              try {
+			                var api = getBlocklistApi();
+			                var list = [];
+			                try { list = (api && api.builtin && typeof api.builtin.getAll === 'function') ? api.builtin.getAll() : []; } catch (_) { list = []; }
+
+			                if (!list || !list.length) {
+			                  var none = api ? 'Нет встроенных правил.' : 'Network policy не доступна.';
+			                  Lampa.SettingsApi.addParam({
+			                    component: MAIN_COMPONENT,
+			                    param: { name: 'bl_blocklist_builtin_none', type: 'static', values: none, default: none },
+			                    field: { name: 'URL Blocklist', description: none }
+			                  });
+			                  return;
+			                }
+
+			                for (var i = 0; i < list.length; i++) {
+			                  (function (rule, rowIndex) {
+			                    Lampa.SettingsApi.addParam({
+			                      component: MAIN_COMPONENT,
+			                      param: { name: 'bl_blocklist_builtin_' + String(rule.id || rowIndex), type: 'static', default: true },
+			                      field: { name: String(rule.title || 'Rule'), description: String(rule.description || '') },
+			                      onRender: function (item) {
+			                        try {
+			                          if (!window.$ || !item) return;
+			                          // Safer text rendering (no html injection from titles/descriptions).
+			                          try { item.find('.settings-param__name').text(String(rule.title || '')); } catch (_) { }
+			                          try {
+			                            var $d = item.find('.settings-param__descr');
+			                            if (!$d.length) {
+			                              item.append('<div class="settings-param__descr"></div>');
+			                              $d = item.find('.settings-param__descr');
+			                            }
+			                            $d.text(String(rule.description || ''));
+			                          } catch (_) { }
+
+			                          var $st = ensureStatusDot(item);
+			                          setStatusDot($st, !!rule.enabled);
+
+			                          if (item.on) {
+			                            item.on('hover:enter', function () {
+			                              try {
+			                                var api2 = getBlocklistApi();
+			                                if (api2 && api2.builtin && typeof api2.builtin.setEnabled === 'function') {
+			                                  api2.builtin.setEnabled(String(rule.id), !rule.enabled);
+			                                }
+			                              } catch (_) { }
+			                              openBlocklistBuiltinScreen(uiBackBlocklistIndex, rowIndex);
+			                            });
+			                          }
+			                        } catch (_) { }
+			                      }
+			                    });
+			                  })(list[i], i);
+			                }
+			              } catch (_) { }
+			            }
+
+			            function openBlocklistBuiltinScreen(backIndexBlocklist, focusIndex) {
+			              try {
+			                uiRoute = 'blocklist_builtin';
+			                uiDetailMeta = null;
+			                uiUserRuleId = '';
+			                uiBackUserRuleIndex = 0;
+			                if (typeof backIndexBlocklist === 'number') uiBackBlocklistIndex = backIndexBlocklist;
+
+			                resetMainParams();
+			                buildBlocklistBuiltinScreen();
+
+			                if (!window.Lampa || !Lampa.Settings || !Lampa.Settings.create) return;
+			                var cp = {
+			                  onBack: function () { openBlocklistScreen(uiBackMainIndex, uiBackBlocklistIndex); },
+			                  __bl_ap_internal: true,
+			                  __bl_ap_route: 'blocklist_builtin'
+			                };
+			                if (typeof focusIndex === 'number' && focusIndex > 0) cp.last_index = focusIndex;
+			                Lampa.Settings.create(String(MAIN_COMPONENT), cp);
+			              } catch (_) { }
+			            }
+
+			            function buildBlocklistUserRulesScreen() {
+			              try {
+			                var api = getBlocklistApi();
+			                var list = [];
+			                try { list = (api && api.user && typeof api.user.getAll === 'function') ? api.user.getAll() : []; } catch (_) { list = []; }
+
+			                if (!api) {
+			                  var na = 'Network policy не доступна.';
+			                  Lampa.SettingsApi.addParam({
+			                    component: MAIN_COMPONENT,
+			                    param: { name: 'bl_blocklist_user_na', type: 'static', values: na, default: na },
+			                    field: { name: 'URL Blocklist', description: na }
+			                  });
+			                  return;
+			                }
+
+			                if (!list || !list.length) {
+			                  var none = 'Нет пользовательских правил.';
+			                  Lampa.SettingsApi.addParam({
+			                    component: MAIN_COMPONENT,
+			                    param: { name: 'bl_blocklist_user_none', type: 'static', values: none, default: none },
+			                    field: { name: 'Пользовательские URL', description: none }
+			                  });
+			                  return;
+			                }
+
+			                for (var i = 0; i < list.length; i++) {
+			                  (function (rule, rowIndex) {
+			                    Lampa.SettingsApi.addParam({
+			                      component: MAIN_COMPONENT,
+			                      param: { name: 'bl_blocklist_user_' + String(rule.id || rowIndex), type: 'static', default: true },
+			                      field: { name: 'URL rule', description: '' },
+			                      onRender: function (item) {
+			                        try {
+			                          if (!window.$ || !item) return;
+			                          try { item.find('.settings-param__name').text(String(rule.pattern || '')); } catch (_) { }
+			                          try {
+			                            var $d = item.find('.settings-param__descr');
+			                            if (!$d.length) {
+			                              item.append('<div class="settings-param__descr"></div>');
+			                              $d = item.find('.settings-param__descr');
+			                            }
+			                            $d.text('type: ' + String(rule.type || 'simple'));
+			                          } catch (_) { }
+			                          var $st = ensureStatusDot(item);
+			                          setStatusDot($st, !!rule.enabled);
+
+			                          if (item.on) item.on('hover:enter', function () { openBlocklistUserRuleDetailScreen(String(rule.id), rowIndex, 0); });
+			                        } catch (_) { }
+			                      }
+			                    });
+			                  })(list[i], i);
+			                }
+			              } catch (_) { }
+			            }
+
+			            function openBlocklistUserRulesScreen(backIndexBlocklist, focusIndex) {
+			              try {
+			                uiRoute = 'blocklist_user';
+			                uiDetailMeta = null;
+			                uiUserRuleId = '';
+			                if (typeof backIndexBlocklist === 'number') uiBackBlocklistIndex = backIndexBlocklist;
+
+			                resetMainParams();
+			                buildBlocklistUserRulesScreen();
+
+			                if (!window.Lampa || !Lampa.Settings || !Lampa.Settings.create) return;
+			                var cp = {
+			                  onBack: function () { openBlocklistScreen(uiBackMainIndex, uiBackBlocklistIndex); },
+			                  __bl_ap_internal: true,
+			                  __bl_ap_route: 'blocklist_user'
+			                };
+			                if (typeof focusIndex === 'number' && focusIndex > 0) cp.last_index = focusIndex;
+			                Lampa.Settings.create(String(MAIN_COMPONENT), cp);
+			              } catch (_) { }
+			            }
+
+			            function buildBlocklistUserRuleDetailScreen(ruleId) {
+			              try {
+			                var api = getBlocklistApi();
+			                var list = [];
+			                try { list = (api && api.user && typeof api.user.getAll === 'function') ? api.user.getAll() : []; } catch (_) { list = []; }
+			                var rule = null;
+			                for (var i = 0; i < list.length; i++) {
+			                  try { if (String(list[i].id) === String(ruleId)) { rule = list[i]; break; } } catch (_) { }
+			                }
+
+			                if (!rule) {
+			                  var bad = 'Правило не найдено.';
+			                  Lampa.SettingsApi.addParam({
+			                    component: MAIN_COMPONENT,
+			                    param: { name: 'bl_blocklist_user_detail_bad', type: 'static', values: bad, default: bad },
+			                    field: { name: 'Пользовательские URL', description: bad }
+			                  });
+			                  return;
+			                }
+
+			                // Info (safe text)
+			                try {
+			                  Lampa.SettingsApi.addParam({
+			                    component: MAIN_COMPONENT,
+			                    param: { name: 'bl_blocklist_user_detail_info', type: 'static', default: true },
+			                    field: { name: 'Правило', description: '' },
+			                    onRender: function (item) {
+			                      try {
+			                        if (!window.$ || !item) return;
+			                        try { item.find('.settings-param__name').text(String(rule.pattern || '')); } catch (_) { }
+			                        var descr = 'type: ' + String(rule.type || 'simple');
+			                        try {
+			                          if (rule.type === 'advanced' && rule.advanced) {
+			                            if (rule.advanced.contentType) descr += '\ncontent-type: ' + String(rule.advanced.contentType);
+			                            if (rule.advanced.bodyMode) descr += '\nbody: ' + String(rule.advanced.bodyMode);
+			                          }
+			                        } catch (_) { }
+			                        try {
+			                          var $d = item.find('.settings-param__descr');
+			                          if (!$d.length) {
+			                            item.append('<div class="settings-param__descr"></div>');
+			                            $d = item.find('.settings-param__descr');
+			                          }
+			                          $d.text(descr);
+			                        } catch (_) { }
+			                        var $st = ensureStatusDot(item);
+			                        setStatusDot($st, !!rule.enabled);
+			                      } catch (_) { }
+			                    }
+			                  });
+			                } catch (_) { }
+
+			                // Toggle enable/disable
+			                try {
+			                  var toggleName = rule.enabled ? 'Выключить' : 'Включить';
+			                  Lampa.SettingsApi.addParam({
+			                    component: MAIN_COMPONENT,
+			                    param: { name: 'bl_blocklist_user_detail_toggle', type: 'button' },
+			                    field: { name: toggleName, description: 'Включает/выключает пользовательское правило.' },
+			                    onChange: function () {
+			                      try {
+			                        var api2 = getBlocklistApi();
+			                        if (api2 && api2.user && typeof api2.user.setEnabled === 'function') {
+			                          api2.user.setEnabled(String(rule.id), !rule.enabled);
+			                        }
+			                      } catch (_) { }
+			                      openBlocklistUserRuleDetailScreen(String(rule.id), uiBackUserRuleIndex, 0);
+			                    }
+			                  });
+			                } catch (_) { }
+
+			                // Delete
+			                try {
+			                  Lampa.SettingsApi.addParam({
+			                    component: MAIN_COMPONENT,
+			                    param: { name: 'bl_blocklist_user_detail_delete', type: 'button' },
+			                    field: { name: 'Удалить', description: 'Удаляет пользовательское правило.' },
+			                    onChange: function () {
+			                      confirmAction('Удалить правило', 'Удалить правило?\n\n' + String(rule.pattern || ''), function () {
+			                        try {
+			                          var api2 = getBlocklistApi();
+			                          if (api2 && api2.user && typeof api2.user.remove === 'function') api2.user.remove(String(rule.id));
+			                        } catch (_) { }
+			                        openBlocklistUserRulesScreen(uiBackBlocklistIndex, uiBackUserRuleIndex);
+			                      });
+			                    }
+			                  });
+			                } catch (_) { }
+			              } catch (_) { }
+			            }
+
+			            function openBlocklistUserRuleDetailScreen(ruleId, backIndexUserList, focusIndex) {
+			              try {
+			                uiRoute = 'blocklist_user_detail';
+			                uiDetailMeta = null;
+			                uiUserRuleId = String(ruleId || '');
+			                if (typeof backIndexUserList === 'number') uiBackUserRuleIndex = backIndexUserList;
+
+			                resetMainParams();
+			                buildBlocklistUserRuleDetailScreen(uiUserRuleId);
+
+			                if (!window.Lampa || !Lampa.Settings || !Lampa.Settings.create) return;
+			                var cp = {
+			                  onBack: function () { openBlocklistUserRulesScreen(uiBackBlocklistIndex, uiBackUserRuleIndex); },
+			                  __bl_ap_internal: true,
+			                  __bl_ap_route: 'blocklist_user_detail'
+			                };
+			                if (typeof focusIndex === 'number' && focusIndex > 0) cp.last_index = focusIndex;
+			                Lampa.Settings.create(String(MAIN_COMPONENT), cp);
+			              } catch (_) { }
+			            }
+
+			            function buildBlocklistAddScreen() {
+			              try {
+			                var api = getBlocklistApi();
+			                if (!api) {
+			                  var na = 'Network policy не доступна.';
+			                  Lampa.SettingsApi.addParam({
+			                    component: MAIN_COMPONENT,
+			                    param: { name: 'bl_blocklist_add_na', type: 'static', values: na, default: na },
+			                    field: { name: 'URL Blocklist', description: na }
+			                  });
+			                  return;
+			                }
+
+			                // URL / Pattern
+			                try {
+			                  Lampa.SettingsApi.addParam({
+			                    component: MAIN_COMPONENT,
+			                    param: { name: BL_RULE_ADD_PATTERN, type: 'input', values: '', default: '', placeholder: 'https://example.com/*' },
+			                    field: { name: 'URL / Pattern', description: 'Подстрока / wildcard (*) / /regex/i.' }
+			                  });
+			                } catch (_) { }
+
+			                // Type
+			                try {
+			                  Lampa.SettingsApi.addParam({
+			                    component: MAIN_COMPONENT,
+			                    param: {
+			                      name: BL_RULE_ADD_TYPE,
+			                      type: 'select',
+			                      values: { simple: 'Простое (simple)', advanced: 'Расширенное (advanced)' },
+			                      default: 'simple'
+			                    },
+			                    field: { name: 'Тип правила', description: '' },
+			                    onChange: function () {
+			                      // Rebuild to show/hide advanced fields.
+			                      openBlocklistAddScreen(uiBackBlocklistIndex, 2);
+			                    }
+			                  });
+			                } catch (_) { }
+
+			                var rt = 'simple';
+			                try {
+			                  rt = (window.Lampa && Lampa.Storage && Lampa.Storage.get) ? String(Lampa.Storage.get(BL_RULE_ADD_TYPE) || 'simple') : 'simple';
+			                } catch (_) { rt = 'simple'; }
+
+			                if (rt === 'advanced') {
+			                  // Content-Type
+			                  try {
+			                    Lampa.SettingsApi.addParam({
+			                      component: MAIN_COMPONENT,
+			                      param: {
+			                        name: BL_RULE_ADD_CT,
+			                        type: 'select',
+			                        values: {
+			                          'application/json': 'application/json',
+			                          'application/javascript': 'application/javascript',
+			                          'text/css': 'text/css',
+			                          'text/html': 'text/html',
+			                          'image/svg+xml': 'image/svg+xml',
+			                          'image/png': 'image/png',
+			                          'image/jpeg': 'image/jpeg',
+			                          'image/gif': 'image/gif',
+			                          'image/webp': 'image/webp',
+			                          'image/x-icon': 'image/x-icon',
+			                          'text/plain': 'text/plain'
+			                        },
+			                        default: 'application/json'
+			                      },
+			                      field: { name: 'Content-Type', description: '' }
+			                    });
+			                  } catch (_) { }
+
+			                  // Body mode
+			                  try {
+			                    Lampa.SettingsApi.addParam({
+			                      component: MAIN_COMPONENT,
+			                      param: { name: BL_RULE_ADD_BODY, type: 'select', values: { empty: 'empty', minimal: 'minimal' }, default: 'empty' },
+			                      field: { name: 'Body mode', description: '' }
+			                    });
+			                  } catch (_) { }
+			                }
+
+			                // Save
+			                try {
+			                  Lampa.SettingsApi.addParam({
+			                    component: MAIN_COMPONENT,
+			                    param: { name: 'bl_blocklist_add_save', type: 'button' },
+			                    field: { name: 'Сохранить', description: 'Добавляет правило и включает его.' },
+			                    onChange: function () {
+			                      try {
+			                        var pat = '';
+			                        try { pat = (window.Lampa && Lampa.Storage && Lampa.Storage.get) ? String(Lampa.Storage.get(BL_RULE_ADD_PATTERN) || '') : ''; } catch (_) { pat = ''; }
+			                        pat = String(pat || '').trim();
+			                        if (!pat) {
+			                          try { if (Lampa.Noty && Lampa.Noty.show) Lampa.Noty.show('[[BlackLampa]] Укажите URL / Pattern'); } catch (_) { }
+			                          return;
+			                        }
+
+			                        var type = 'simple';
+			                        try { type = (window.Lampa && Lampa.Storage && Lampa.Storage.get) ? String(Lampa.Storage.get(BL_RULE_ADD_TYPE) || 'simple') : 'simple'; } catch (_) { type = 'simple'; }
+			                        if (type !== 'advanced') type = 'simple';
+
+			                        var rule = { pattern: pat, type: type, enabled: true };
+			                        if (type === 'advanced') {
+			                          var ct = '';
+			                          var bm = '';
+			                          try { ct = (window.Lampa && Lampa.Storage && Lampa.Storage.get) ? String(Lampa.Storage.get(BL_RULE_ADD_CT) || '') : ''; } catch (_) { ct = ''; }
+			                          try { bm = (window.Lampa && Lampa.Storage && Lampa.Storage.get) ? String(Lampa.Storage.get(BL_RULE_ADD_BODY) || '') : ''; } catch (_) { bm = ''; }
+			                          rule.advanced = { contentType: ct, bodyMode: bm };
+			                        }
+
+			                        var api2 = getBlocklistApi();
+			                        if (api2 && api2.user && typeof api2.user.add === 'function') {
+			                          api2.user.add(rule);
+			                          try { if (Lampa.Noty && Lampa.Noty.show) Lampa.Noty.show('[[BlackLampa]] Правило добавлено'); } catch (_) { }
+			                          openBlocklistUserRulesScreen(1, 0);
+			                        } else {
+			                          try { if (Lampa.Noty && Lampa.Noty.show) Lampa.Noty.show('[[BlackLampa]] Network policy missing'); } catch (_) { }
+			                        }
+			                      } catch (_) { }
+			                    }
+			                  });
+			                } catch (_) { }
+			              } catch (_) { }
+			            }
+
+			            function openBlocklistAddScreen(backIndexBlocklist, focusIndex) {
+			              try {
+			                uiRoute = 'blocklist_add';
+			                uiDetailMeta = null;
+			                uiUserRuleId = '';
+			                uiBackUserRuleIndex = 0;
+			                if (typeof backIndexBlocklist === 'number') uiBackBlocklistIndex = backIndexBlocklist;
+
+			                resetMainParams();
+			                buildBlocklistAddScreen();
+
+			                if (!window.Lampa || !Lampa.Settings || !Lampa.Settings.create) return;
+			                var cp = {
+			                  onBack: function () { openBlocklistScreen(uiBackMainIndex, uiBackBlocklistIndex); },
+			                  __bl_ap_internal: true,
+			                  __bl_ap_route: 'blocklist_add'
+			                };
+			                if (typeof focusIndex === 'number' && focusIndex > 0) cp.last_index = focusIndex;
+			                Lampa.Settings.create(String(MAIN_COMPONENT), cp);
+			              } catch (_) { }
+			            }
 
 			            function buildMainScreen() {
 			              var idx = 0;
 
-		              // Main menu items (required order)
+			              // Main menu items (required order)
 		              // 1) Переинициализация
 		              try {
 		                Lampa.SettingsApi.addParam({
@@ -1064,14 +1603,33 @@
 			                    } catch (_) { }
 			                  }
 			                });
-			              } catch (_) { }
-			              idx++;
+				              } catch (_) { }
+				              idx++;
 
-			              // X) Status (last, help + raw inside one item)
-			              try {
-			                Lampa.SettingsApi.addParam({
-			                  component: MAIN_COMPONENT,
-			                  param: { name: 'ap_status', type: 'static', values: '', default: '' },
+				              // 7) URL Blocklist
+				              var blocklistIndex = idx;
+				              try {
+				                Lampa.SettingsApi.addParam({
+				                  component: MAIN_COMPONENT,
+				                  param: { name: 'bl_url_blocklist', type: 'static', default: true },
+				                  field: { name: 'URL Blocklist', description: 'Управление сетевыми блокировками BlackLampa: встроенные правила + пользовательские URL.' },
+				                  onRender: function (item) {
+				                    try {
+				                      if (!item || !item.on) return;
+				                      item.on('hover:enter', function () {
+				                        openBlocklistScreen(blocklistIndex, 0);
+				                      });
+				                    } catch (_) { }
+				                  }
+				                });
+				              } catch (_) { }
+				              idx++;
+
+				              // X) Status (last, help + raw inside one item)
+				              try {
+				                Lampa.SettingsApi.addParam({
+				                  component: MAIN_COMPONENT,
+				                  param: { name: 'ap_status', type: 'static', values: '', default: '' },
 			                  field: { name: 'Статус', description: '' },
 			                  onRender: function (item) {
 			                    try {
