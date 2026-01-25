@@ -429,6 +429,63 @@
 	  // ============================================================================
 	  function normalizeUrlString(u) { try { return String(u || ''); } catch (_) { return ''; } }
 
+	  // Perf + logging guards (must be ultra-cheap when aplog=0)
+	  var __perfNetReq = 0;
+	  var __perfNetBlocked = 0;
+	  var __perfDebugLastTs = 0;
+	  var __perfDebugLastReq = 0;
+
+	  var NET_LOG_LIMIT_PER_SEC = 8;
+	  var __netLogWinTs = 0;
+	  var __netLogInWin = 0;
+	  var __netLogSuppressed = 0;
+	  var __netLogFlushTimer = null;
+
+	  function getLogModeFast() {
+	    try { if (BL.Log && typeof BL.Log.mode === 'function') return BL.Log.mode() || 0; } catch (_) { }
+	    return 0;
+	  }
+
+	  function isLogEnabledFast() { return getLogModeFast() !== 0; }
+
+	  function flushNetLogSuppressed() {
+	    try {
+	      if (!__netLogSuppressed) return;
+	      if (!isLogEnabledFast()) { __netLogSuppressed = 0; return; }
+	      var n = __netLogSuppressed;
+	      __netLogSuppressed = 0;
+	      var line = '[BlackLampa][NET][BLOCK] +' + String(n) + ' logs suppressed (1s)';
+	      if (BL.Log && typeof BL.Log.raw === 'function') return BL.Log.raw('WRN', line);
+	      try { if (BL.Console && BL.Console.warn) return BL.Console.warn(line); } catch (_) { }
+	      try { if (BL.Console && BL.Console.log) return BL.Console.log(line); } catch (_) { }
+	    } catch (_) { }
+	  }
+
+	  function netLogAllow() {
+	    try {
+	      var now = Date.now();
+	      if (!__netLogWinTs || (now - __netLogWinTs) >= 1000) {
+	        __netLogWinTs = now;
+	        __netLogInWin = 0;
+	        flushNetLogSuppressed();
+	      }
+
+	      if (__netLogInWin < NET_LOG_LIMIT_PER_SEC) {
+	        __netLogInWin++;
+	        return true;
+	      }
+
+	      __netLogSuppressed++;
+	      if (!__netLogFlushTimer) {
+	        __netLogFlushTimer = setTimeout(function () {
+	          __netLogFlushTimer = null;
+	          flushNetLogSuppressed();
+	        }, 1100);
+	      }
+	    } catch (_) { }
+	    return false;
+	  }
+
 	  function guessFakePayload(context) {
 	    context = context || {};
 	    var urlStr = normalizeUrlString(context.url);
@@ -526,6 +583,11 @@
 
 	  BL.Net.logBlocked = BL.Net.logBlocked || function (context) {
 	    try {
+	      __perfNetBlocked++;
+	      // When logging is disabled (aplog=0), do nothing (no strings/console/DOM).
+	      if (!isLogEnabledFast()) return;
+	      if (!netLogAllow()) return;
+
 	      context = context || {};
 	      var u = normalizeUrlString(context.url);
 	      var t = String(context.type || '');
@@ -701,13 +763,23 @@
     }
     BL.PolicyNetwork.__installed = true;
 
+    // Config flags (read once at install)
+    var cfg0 = null;
+    try { cfg0 = (BL.Config && typeof BL.Config.get === 'function') ? BL.Config.get() : BL.Config; } catch (_) { cfg0 = BL.Config; }
+    cfg0 = cfg0 || {};
+    var NET_HOOK_WS = false;
+    try { NET_HOOK_WS = !!cfg0.NET_HOOK_WS; } catch (_) { NET_HOOK_WS = false; }
+    var PERF_DEBUG = false;
+    try { PERF_DEBUG = !!cfg0.PERF_DEBUG; } catch (_) { PERF_DEBUG = false; }
+
 	    if (window.fetch) {
 	      var origFetch = window.fetch.bind(window);
 	      window.fetch = function (input, init) {
+	        __perfNetReq++;
 	        var u = (typeof input === 'string') ? input : (input && input.url) ? input.url : '';
 
 	        if (isCubBlacklistUrl(u)) {
-	          logCall(log, 'showOk', 'CUB', 'blacklist overridden', 'fetch | ' + String(u));
+	          if (isLogEnabledFast()) logCall(log, 'showOk', 'CUB', 'blacklist overridden', 'fetch | ' + String(u));
 	          return Promise.resolve(BL.Net.makeFakeOkResponse({ url: u, type: 'fetch', reason: 'CUB:blacklist' }));
 	        }
 
@@ -723,12 +795,13 @@
 	      };
 	    }
 
-    if (window.XMLHttpRequest) {
+	    if (window.XMLHttpRequest) {
       var XHR = window.XMLHttpRequest;
       var origOpen = XHR.prototype.open;
       var origSend = XHR.prototype.send;
 
       XHR.prototype.open = function (method, url) {
+        __perfNetReq++;
         this.__ap_url = url;
         this.__ap_mock_cub_blacklist = isCubBlacklistUrl(url);
         this.__ap_block_ctx = getBlockContext(url);
@@ -742,7 +815,7 @@
 
 	          setTimeout(function () {
 	            try {
-	              logCall(log, 'showOk', 'CUB', 'blacklist overridden', 'XHR | ' + String(u0));
+	              if (isLogEnabledFast()) logCall(log, 'showOk', 'CUB', 'blacklist overridden', 'XHR | ' + String(u0));
 	              var fake = BL.Net.makeFakeOkResponse({ url: u0, type: 'xhr', reason: 'CUB:blacklist' });
 	              if (fake && fake.applyToXhr) fake.applyToXhr(xhr0);
 	            } catch (_) { }
@@ -774,6 +847,7 @@
 	    if (navigator.sendBeacon) {
 	      var origBeacon = navigator.sendBeacon.bind(navigator);
 	      navigator.sendBeacon = function (url, data) {
+	        __perfNetReq++;
 	        var ctx = getBlockContext(url);
 	        if (ctx && ctx.reason) {
 	          var c = { url: ctx.url || url, type: 'beacon', reason: ctx.reason };
@@ -785,18 +859,62 @@
 	    }
 
 	    if (window.WebSocket) {
-	      var OrigWS = window.WebSocket;
-	      window.WebSocket = function (url, protocols) {
-	        var ctx = getBlockContext(url);
-	        if (ctx && ctx.reason) {
-	          var c = { url: ctx.url || url, type: 'ws', reason: ctx.reason };
-	          BL.Net.logBlocked(c);
-	          return BL.Net.makeFakeOkResponse(c);
-	        }
-	        return (protocols !== undefined) ? new OrigWS(url, protocols) : new OrigWS(url);
-	      };
-	      window.WebSocket.prototype = OrigWS.prototype;
+	      if (NET_HOOK_WS) {
+	        BL.PolicyNetwork.__wsHooked = true;
+	        var OrigWS = window.WebSocket;
+	        window.WebSocket = function (url, protocols) {
+	          __perfNetReq++;
+	          var ctx = getBlockContext(url);
+	          if (ctx && ctx.reason) {
+	            var c = { url: ctx.url || url, type: 'ws', reason: ctx.reason };
+	            BL.Net.logBlocked(c);
+	            return BL.Net.makeFakeOkResponse(c);
+	          }
+	          return (protocols !== undefined) ? new OrigWS(url, protocols) : new OrigWS(url);
+	        };
+	        window.WebSocket.prototype = OrigWS.prototype;
+	      } else {
+	        BL.PolicyNetwork.__wsHooked = false;
+	      }
 	    }
+
+    // Optional perf diagnostics (disabled by default)
+    try {
+      if (PERF_DEBUG && !BL.PolicyNetwork.__perfDebugInstalled) {
+        BL.PolicyNetwork.__perfDebugInstalled = true;
+        __perfDebugLastTs = Date.now();
+        __perfDebugLastReq = __perfNetReq;
+
+        setInterval(function () {
+          try {
+            var now = Date.now();
+            var dt = now - (__perfDebugLastTs || now);
+            var curReq = __perfNetReq;
+            var dReq = curReq - (__perfDebugLastReq || 0);
+            __perfDebugLastTs = now;
+            __perfDebugLastReq = curReq;
+
+            var rps = dt > 0 ? (dReq * 1000 / dt) : 0;
+            var lp = null;
+            try { if (BL.Log && typeof BL.Log.perf === 'function') lp = BL.Log.perf(); } catch (_) { lp = null; }
+
+            var mode = lp ? lp.mode : getLogModeFast();
+            var lines = lp ? lp.lines : 0;
+            var vis = lp ? lp.visible : false;
+            var ws = !!BL.PolicyNetwork.__wsHooked;
+
+            var msg = '[BlackLampa][PERF] NET:' + rps.toFixed(1) + ' req/s'
+              + ' | BLOCK:' + String(__perfNetBlocked)
+              + ' | LOG:mode=' + String(mode) + ' lines=' + String(lines)
+              + ' | POPUP:' + (vis ? '1' : '0')
+              + ' | WS:' + (ws ? '1' : '0');
+
+            if (BL.Console && BL.Console.info) return BL.Console.info(msg);
+            try { if (window.console && console.log) console.log(msg); } catch (_) { }
+          } catch (_) { }
+        }, 2000);
+      }
+    } catch (_) { }
 
     logCall(log, 'showOk', 'Policy', 'installed', 'Yandex + Google/YouTube + Statistics + BWA:CORS(/cors/check) + CUB:blacklist([])');
   }

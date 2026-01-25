@@ -30,6 +30,13 @@
     } catch (_) { }
   }
 
+  function getLogModeFast() {
+    try { if (BL.Log && typeof BL.Log.mode === 'function') return BL.Log.mode() || 0; } catch (_) { }
+    return 0;
+  }
+
+  function isLogEnabledFast() { return getLogModeFast() !== 0; }
+
   function clearPluginsBlacklist(reason, log) {
     try {
       if (!LS_PLUGINS_BLACKLIST_KEY) return;
@@ -38,11 +45,11 @@
       try { cur = localStorage.getItem(LS_PLUGINS_BLACKLIST_KEY); } catch (_) { }
       if (cur !== null && cur !== LS_PLUGINS_BLACKLIST_EMPTY) {
         try { localStorage.setItem(LS_PLUGINS_BLACKLIST_KEY, LS_PLUGINS_BLACKLIST_EMPTY); } catch (_) { }
-        logCall(log, 'showOk', 'LS', 'plugins_blacklist cleared', String(reason || ''));
+        if (isLogEnabledFast()) logCall(log, 'showOk', 'LS', 'plugins_blacklist cleared', String(reason || ''));
       } else if (cur === null) {
         // если ключа нет — создаём пустой, чтобы код, ожидающий строку, не падал
         try { localStorage.setItem(LS_PLUGINS_BLACKLIST_KEY, LS_PLUGINS_BLACKLIST_EMPTY); } catch (_) { }
-        logCall(log, 'showDbg', 'LS', 'plugins_blacklist seeded', String(reason || ''));
+        if (isLogEnabledFast()) logCall(log, 'showDbg', 'LS', 'plugins_blacklist seeded', String(reason || ''));
       }
     } catch (_) { }
   }
@@ -75,7 +82,9 @@
             if (String(k) === LS_PLUGINS_BLACKLIST_KEY) {
               // игнорируем любые попытки записать не пустое
               if (String(v) !== LS_PLUGINS_BLACKLIST_EMPTY) {
-                logCall(log, 'showWarn', 'LS', 'blocked write plugins_blacklist', String(v).slice(0, 180));
+                if (isLogEnabledFast()) {
+                  try { logCall(log, 'showWarn', 'LS', 'blocked write plugins_blacklist', String(v).slice(0, 180)); } catch (_) { }
+                }
               }
               return _setItem.call(localStorage, LS_PLUGINS_BLACKLIST_KEY, LS_PLUGINS_BLACKLIST_EMPTY);
             }
@@ -87,7 +96,7 @@
         localStorage.removeItem = function (k) {
           try {
             if (String(k) === LS_PLUGINS_BLACKLIST_KEY) {
-              logCall(log, 'showWarn', 'LS', 'blocked remove plugins_blacklist', '');
+              if (isLogEnabledFast()) logCall(log, 'showWarn', 'LS', 'blocked remove plugins_blacklist', '');
               return _setItem.call(localStorage, LS_PLUGINS_BLACKLIST_KEY, LS_PLUGINS_BLACKLIST_EMPTY);
             }
           } catch (_) { }
@@ -98,11 +107,55 @@
         localStorage.clear = function () {
           var r = _clear.apply(localStorage, arguments);
           try { _setItem.call(localStorage, LS_PLUGINS_BLACKLIST_KEY, LS_PLUGINS_BLACKLIST_EMPTY); } catch (_) { }
-          logCall(log, 'showWarn', 'LS', 'localStorage.clear detected', 're-seeded plugins_blacklist');
+          if (isLogEnabledFast()) logCall(log, 'showWarn', 'LS', 'localStorage.clear detected', 're-seeded plugins_blacklist');
           return r;
         };
 
-        logCall(log, 'showOk', 'LS', 'plugins_blacklist guard installed', 'setItem/removeItem/clear');
+        if (isLogEnabledFast()) logCall(log, 'showOk', 'LS', 'plugins_blacklist guard installed', 'setItem/removeItem/clear');
+      }
+    } catch (_) { }
+
+    // 2.1) Также перехватываем Storage.prototype.* (защита от обхода через prototype.call)
+    try {
+      if (window.Storage && Storage.prototype && !Storage.prototype.__ap_bl_guarded) {
+        Storage.prototype.__ap_bl_guarded = true;
+
+        var _spSetItem = Storage.prototype.setItem;
+        var _spRemoveItem = Storage.prototype.removeItem;
+        var _spClear = Storage.prototype.clear;
+
+        Storage.prototype.setItem = function (k, v) {
+          try {
+            if (this === localStorage && String(k) === LS_PLUGINS_BLACKLIST_KEY) {
+              if (String(v) !== LS_PLUGINS_BLACKLIST_EMPTY) {
+                if (isLogEnabledFast()) {
+                  try { logCall(log, 'showWarn', 'LS', 'blocked write plugins_blacklist (proto)', String(v).slice(0, 180)); } catch (_) { }
+                }
+              }
+              return _spSetItem.call(this, LS_PLUGINS_BLACKLIST_KEY, LS_PLUGINS_BLACKLIST_EMPTY);
+            }
+          } catch (_) { }
+          return _spSetItem.apply(this, arguments);
+        };
+
+        Storage.prototype.removeItem = function (k) {
+          try {
+            if (this === localStorage && String(k) === LS_PLUGINS_BLACKLIST_KEY) {
+              if (isLogEnabledFast()) logCall(log, 'showWarn', 'LS', 'blocked remove plugins_blacklist (proto)', '');
+              return _spSetItem.call(this, LS_PLUGINS_BLACKLIST_KEY, LS_PLUGINS_BLACKLIST_EMPTY);
+            }
+          } catch (_) { }
+          return _spRemoveItem.apply(this, arguments);
+        };
+
+        Storage.prototype.clear = function () {
+          var r = _spClear.apply(this, arguments);
+          try {
+            if (this === localStorage) _spSetItem.call(this, LS_PLUGINS_BLACKLIST_KEY, LS_PLUGINS_BLACKLIST_EMPTY);
+          } catch (_) { }
+          if (this === localStorage && isLogEnabledFast()) logCall(log, 'showWarn', 'LS', 'Storage.clear detected (proto)', 're-seeded plugins_blacklist');
+          return r;
+        };
       }
     } catch (_) { }
 
@@ -122,7 +175,16 @@
 
 	    // 4) страховка (на ТВ иногда пишут мимо наших хуков)
 	    try {
-	      if (LS_PLUGINS_BLACKLIST_WATCHDOG_MS > 0 && !window.__ap_bl_watchdog) {
+	      var cfg0 = null;
+	      try { cfg0 = (BL.Config && typeof BL.Config.get === 'function') ? BL.Config.get() : BL.Config; } catch (_) { cfg0 = BL.Config; }
+	      cfg0 = cfg0 || {};
+	      var perfDebug = false;
+	      try { perfDebug = !!cfg0.PERF_DEBUG; } catch (_) { perfDebug = false; }
+
+	      // IMPORTANT:
+	      // Watchdog is the heaviest part of the guard (timer + periodic localStorage reads).
+	      // Do NOT run it when aplog=0 (unless PERF_DEBUG is explicitly enabled).
+	      if (LS_PLUGINS_BLACKLIST_WATCHDOG_MS > 0 && (perfDebug || isLogEnabledFast()) && !window.__ap_bl_watchdog) {
 	        window.__ap_bl_watchdog = setInterval(function () {
 	          clearPluginsBlacklist('watchdog', log);
 	        }, LS_PLUGINS_BLACKLIST_WATCHDOG_MS);

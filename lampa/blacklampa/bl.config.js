@@ -91,4 +91,18 @@
   setDefault(storage, 'pluginsBlacklistKey', 'plugins_blacklist');
   setDefault(storage, 'pluginsBlacklistEmpty', '[]');
   setDefault(storage, 'pluginsBlacklistWatchdogMs', 2000);
+
+  // ============================================================================
+  // Performance / diagnostics flags (disabled by default)
+  //
+  // NET_HOOK_WS:
+  // - 0 (default): do NOT hook WebSocket at all (best perf, safest)
+  // - 1: allow WebSocket hook (optional, off by default)
+  //
+  // PERF_DEBUG:
+  // - 0 (default): no perf timers/prints
+  // - 1: periodic perf stats to clean console (every ~2s)
+  // ============================================================================
+  setDefault(cfg, 'NET_HOOK_WS', 0);
+  setDefault(cfg, 'PERF_DEBUG', 0);
 })();

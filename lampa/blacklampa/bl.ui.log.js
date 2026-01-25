@@ -867,6 +867,7 @@
 	BL.Log.showError = function (source, message, extra) { showLine('ERR', source, message, extra); };
 	BL.Log.showException = function (source, err, context) {
 		try {
+			if (LOG_MODE === 0 && !viewerMode) return;
 			var info = normalizeError(err, context);
 			var extra = buildExceptionExtra(info, context);
 			showLine('ERR', source || 'ERR', 'exception', extra);
@@ -880,8 +881,23 @@
 	// Raw log line output:
 	// Used by low-level hooks (e.g. network policy) that must preserve an exact pre-formatted line.
 	// Popup output respects LOG_MODE, but console output can be forced (mandatory warnings).
-	BL.Log.raw = function (tag, line) {
-		try { consoleMirror(tag, line, true); } catch (_) { }
-		try { pushPopupLine(line, tag); } catch (_) { }
+	BL.Log.raw = function (tag, line, force) {
+		try { if (force || LOG_MODE !== 0 || viewerMode) consoleMirror(tag, line, true); } catch (_) { }
+		try { if (LOG_MODE !== 0 || viewerMode) pushPopupLine(line, tag); } catch (_) { }
+	};
+
+	BL.Log.isEnabled = function () { return (LOG_MODE !== 0) || viewerMode; };
+
+	// Lightweight perf snapshot (must not create DOM/timers).
+	BL.Log.perf = function () {
+		try {
+			var visible = false;
+			var lines = 0;
+			try { visible = !!popupEl && popupEl.style.display !== 'none'; } catch (_) { visible = false; }
+			try { lines = popupBodyEl && popupBodyEl.childNodes ? popupBodyEl.childNodes.length : 0; } catch (_) { lines = 0; }
+			return { mode: LOG_MODE, viewer: viewerMode, visible: visible, lines: lines };
+		} catch (_) {
+			return { mode: LOG_MODE, viewer: viewerMode, visible: false, lines: 0 };
+		}
 	};
 })();
