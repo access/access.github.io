@@ -42,7 +42,6 @@
 
 	// Viewer-mode (manual open from settings): temporary, must NOT affect normal log behavior.
 	var viewerMode = false;
-	var viewerPrevPopupOpacity = '';
 	var viewerPrevPopupPointerEvents = '';
 	var viewerPrevPopupUserSelect = '';
 	var viewerPrevPopupTouchAction = '';
@@ -68,7 +67,98 @@
 	function safe(fn) { try { return fn(); } catch (_) { return null; } }
 
 	function formatLine(tag, module, message, extra) {
-		return String(PREFIX) + ' ' + String(tag) + ' ' + String(module) + ': ' + String(message) + (extra ? (' | ' + String(extra)) : '');
+		var base = String(PREFIX) + ' ' + String(tag) + ' ' + String(module) + ': ' + String(message);
+		if (!extra) return base;
+		var s = String(extra);
+		if (s.indexOf('\n') !== -1) return base + '\n' + s;
+		return base + ' | ' + s;
+	}
+
+	function fmtErrSafe(e) {
+		try { return (BL.Core && BL.Core.fmtErr) ? BL.Core.fmtErr(e) : String(e || 'error'); } catch (_) { }
+		try { return String(e || 'error'); } catch (_) { return 'error'; }
+	}
+
+	function trimStack(stack, maxLines) {
+		try {
+			var s = String(stack || '');
+			if (!s) return '';
+			var lines = s.split('\n');
+			var n = (typeof maxLines === 'number' && maxLines > 0) ? maxLines : 16;
+			if (lines.length > n) lines = lines.slice(0, n);
+			return lines.join('\n');
+		} catch (_) {
+			try { return String(stack || ''); } catch (__e) { return ''; }
+		}
+	}
+
+	function normalizeError(err, context) {
+		var out = { msg: '', name: '', file: '', line: null, col: null, stack: '' };
+		try {
+			// window.onerror handler (ErrorEvent)
+			if (err && typeof err === 'object' && typeof err.message === 'string' && ('filename' in err || 'lineno' in err || 'colno' in err || 'error' in err)) {
+				out.msg = String(err.message || 'error');
+				out.file = err.filename ? String(err.filename) : '';
+				out.line = (typeof err.lineno === 'number') ? err.lineno : null;
+				out.col = (typeof err.colno === 'number') ? err.colno : null;
+				if (err.error) {
+					try { if (err.error.name) out.name = String(err.error.name); } catch (_) { }
+					try { if (err.error.stack) out.stack = String(err.error.stack); } catch (_) { }
+				}
+			}
+			// PromiseRejectionEvent
+			else if (err && typeof err === 'object' && ('reason' in err)) {
+				var r = err.reason;
+				out.msg = fmtErrSafe(r);
+				try { if (r && r.name) out.name = String(r.name); } catch (_) { }
+				try { if (r && r.stack) out.stack = String(r.stack); } catch (_) { }
+			}
+			// Error
+			else if (err && typeof err === 'object' && typeof err.name === 'string' && typeof err.message === 'string') {
+				out.name = String(err.name || '');
+				out.msg = String(err.message || 'error');
+				try { if (err.stack) out.stack = String(err.stack); } catch (_) { }
+			}
+			// string / other
+			else {
+				out.msg = fmtErrSafe(err);
+			}
+		} catch (_) {
+			out.msg = 'error';
+		}
+
+		if (!out.msg) out.msg = 'error';
+
+		// Caller chain fallback (also helps when filename is missing).
+		var caller = '';
+		try { caller = String(new Error('trace').stack || ''); } catch (_) { caller = ''; }
+
+		if (!out.stack) out.stack = caller;
+		else if (!out.file && caller) {
+			var origShort = trimStack(out.stack, 10);
+			var callerShort = trimStack(caller, 6);
+			out.stack = origShort + '\n--- caller ---\n' + callerShort;
+		}
+
+		out.stack = trimStack(out.stack, 18);
+		return out;
+	}
+
+	function buildExceptionExtra(info, context) {
+		try {
+			var lines = [];
+			lines.push('msg: ' + String(info.msg || 'error'));
+			if (info.name) lines.push('name: ' + String(info.name));
+
+			if (info.file || info.line != null || info.col != null) {
+				lines.push('at: ' + String(info.file || '(no file)') + ':' + String(info.line != null ? info.line : '?') + ':' + String(info.col != null ? info.col : '?'));
+			}
+
+			if (info.stack) lines.push('stack:\n' + String(info.stack));
+			return lines.join('\n');
+		} catch (_) {
+			return '';
+		}
 	}
 
 	function clampMode(m) {
@@ -141,7 +231,7 @@
 			'right:' + String(POPUP_INSET_PX) + 'px',
 			'bottom:' + String(POPUP_INSET_PX) + 'px',
 			'z-index:' + String(POPUP_Z_INDEX),
-			'background:rgba(0,0,0,0.44)',
+			'background:rgba(0,0,0,0.88)',
 			'color:#fff',
 			'border-radius:' + String(POPUP_BORDER_RADIUS_PX) + 'px',
 			'box-sizing:border-box',
@@ -649,7 +739,6 @@
 					try { popupScrollEl.removeEventListener('scroll', viewerScrollHandler, true); } catch (_) { }
 				}
 
-				try { el.style.opacity = viewerPrevPopupOpacity; } catch (_) { }
 				try { el.style.pointerEvents = viewerPrevPopupPointerEvents; } catch (_) { }
 				try { el.style.userSelect = viewerPrevPopupUserSelect; } catch (_) { }
 				try { el.style.touchAction = viewerPrevPopupTouchAction; } catch (_) { }
@@ -666,7 +755,6 @@
 			}
 
 			// Enable viewer mode
-			viewerPrevPopupOpacity = String(el.style.opacity || '');
 			viewerPrevPopupPointerEvents = String(el.style.pointerEvents || '');
 			viewerPrevPopupUserSelect = String(el.style.userSelect || '');
 			viewerPrevPopupTouchAction = String(el.style.touchAction || '');
@@ -681,9 +769,6 @@
 			stopProgressBars();
 			try { if (popupProgressTopEl) popupProgressTopEl.style.display = 'none'; } catch (_) { }
 			try { if (popupProgressBottomEl) popupProgressBottomEl.style.display = 'none'; } catch (_) { }
-
-			// Visual tweaks (requested)
-			try { el.style.opacity = '0.77'; } catch (_) { }
 
 			// Allow viewer interactions (scroll / close)
 			try { el.style.pointerEvents = 'auto'; } catch (_) { }
@@ -713,6 +798,13 @@
 	BL.Log.closeViewer = function () { setViewerMode(false); };
 
 	BL.Log.showError = function (source, message, extra) { showLine('ERR', source, message, extra); };
+	BL.Log.showException = function (source, err, context) {
+		try {
+			var info = normalizeError(err, context);
+			var extra = buildExceptionExtra(info, context);
+			showLine('ERR', source || 'ERR', 'exception', extra);
+		} catch (_) { }
+	};
 	BL.Log.showWarn = function (source, message, extra) { showLine('WRN', source, message, extra); };
 	BL.Log.showOk = function (source, message, extra) { showLine('OK', source, message, extra); };
 	BL.Log.showInfo = function (source, message, extra) { showLine('INF', source, message, extra); };

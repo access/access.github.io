@@ -222,13 +222,22 @@
 	          ].join('\n');
 	        }
 
-        function refreshInstallerSettingsUi() {
-          try {
-            if (!window.Lampa) return;
-            // Refresh visuals only; do not rebuild components here (safe for TV navigation).
-            try { if (Lampa.Settings && Lampa.Settings.update) Lampa.Settings.update(); } catch (_) { }
-          } catch (_) { }
-        }
+	        function refreshInstallerSettingsUi() {
+	          try {
+	            if (!window.Lampa) return;
+	            // IMPORTANT:
+	            // Lampa.Settings.update() recreates the component with `{last_index}` only
+	            // and DROPS params like `onBack`, breaking submenu navigation.
+	            // Prefer our component-local refresh (if installed).
+	            try {
+	              if (window.BL && BL.Factory && typeof BL.Factory.autopluginUiRefresh === 'function') {
+	                BL.Factory.autopluginUiRefresh();
+	                return;
+	              }
+	            } catch (_) { }
+	            try { if (Lampa.Settings && Lampa.Settings.update) Lampa.Settings.update(); } catch (_) { }
+	          } catch (_) { }
+	        }
 
         // ============================================================================
         // Plugins removal (official Lampa API)
@@ -270,16 +279,16 @@
           }
         }
 
-        function setInstalledPlugins(list) {
-          try {
-            if (!window.Lampa || !Lampa.Storage || !Lampa.Storage.set) return false;
-            Lampa.Storage.set('plugins', list);
-            try { if (Lampa.Settings && Lampa.Settings.update) Lampa.Settings.update(); } catch (_) { }
-            return true;
-          } catch (_) {
-            return false;
-          }
-        }
+	        function setInstalledPlugins(list) {
+	          try {
+	            if (!window.Lampa || !Lampa.Storage || !Lampa.Storage.set) return false;
+	            Lampa.Storage.set('plugins', list);
+	            refreshInstallerSettingsUi();
+	            return true;
+	          } catch (_) {
+	            return false;
+	          }
+	        }
 
 	        function getPluginUrl(item) {
 	          try {
@@ -605,60 +614,127 @@
 		            // 5) Дополнительные плагины (submenu)
 		            // X) Статус (last)
 
-		            // Internal navigation: keep ONLY one Settings component (MAIN_COMPONENT).
-		            // Submenus are rendered by rebuilding params and reopening MAIN_COMPONENT.
-		            var uiBackMainIndex = 0;
-		            var uiBackExtrasIndex = 0;
+			            // Internal navigation: keep ONLY one Settings component (MAIN_COMPONENT).
+			            // Submenus are rendered by rebuilding params and reopening MAIN_COMPONENT.
+			            var uiBackMainIndex = 0;
+			            var uiBackExtrasIndex = 0;
+			            var uiRoute = 'main'; // main | extras | detail
+			            var uiDetailMeta = null;
+
+			            function getSettingsFocusIndexSafe() {
+			              try {
+			                if (!document || !document.querySelector) return 0;
+			                var body = document.querySelector('.settings__body');
+			                if (!body) return 0;
+			                var focus = body.querySelector('.selector.focus');
+			                if (!focus) return 0;
+			                var nodes = body.querySelectorAll('.selector');
+			                for (var i = 0; i < nodes.length; i++) {
+			                  if (nodes[i] === focus) return i;
+			                }
+			              } catch (_) { }
+			              return 0;
+			            }
 
 		            function resetMainParams() {
 		              try { if (Lampa.SettingsApi.removeParams) Lampa.SettingsApi.removeParams(String(MAIN_COMPONENT)); } catch (_) { }
 		            }
 
-		            function openMainScreen(focusIndex) {
-		              try {
-		                resetMainParams();
-		                buildMainScreen();
+			            function openMainScreen(focusIndex) {
+			              try {
+			                uiRoute = 'main';
+			                uiDetailMeta = null;
+			                resetMainParams();
+			                buildMainScreen();
 
-		                if (!window.Lampa || !Lampa.Settings || !Lampa.Settings.create) return;
-		                var cp = {};
-		                if (typeof focusIndex === 'number' && focusIndex > 0) cp.last_index = focusIndex;
-		                Lampa.Settings.create(String(MAIN_COMPONENT), cp);
-		              } catch (_) { }
-		            }
+			                if (!window.Lampa || !Lampa.Settings || !Lampa.Settings.create) return;
+			                var cp = { __bl_ap_internal: true, __bl_ap_route: 'main' };
+			                if (typeof focusIndex === 'number' && focusIndex > 0) cp.last_index = focusIndex;
+			                Lampa.Settings.create(String(MAIN_COMPONENT), cp);
+			              } catch (_) { }
+			            }
 
-		            function openExtrasScreen(backIndexMain, focusIndex) {
-		              try {
-		                if (typeof backIndexMain === 'number') uiBackMainIndex = backIndexMain;
-		                resetMainParams();
-		                buildExtrasScreen();
+			            function openExtrasScreen(backIndexMain, focusIndex) {
+			              try {
+			                uiRoute = 'extras';
+			                uiDetailMeta = null;
+			                if (typeof backIndexMain === 'number') uiBackMainIndex = backIndexMain;
+			                resetMainParams();
+			                buildExtrasScreen();
 
-		                if (!window.Lampa || !Lampa.Settings || !Lampa.Settings.create) return;
-		                var cp = {
-		                  onBack: function () { openMainScreen(uiBackMainIndex); }
-		                };
-		                if (typeof focusIndex === 'number' && focusIndex > 0) cp.last_index = focusIndex;
-		                Lampa.Settings.create(String(MAIN_COMPONENT), cp);
-		              } catch (_) { }
-		            }
+			                if (!window.Lampa || !Lampa.Settings || !Lampa.Settings.create) return;
+			                var cp = {
+			                  onBack: function () { openMainScreen(uiBackMainIndex); },
+			                  __bl_ap_internal: true,
+			                  __bl_ap_route: 'extras'
+			                };
+			                if (typeof focusIndex === 'number' && focusIndex > 0) cp.last_index = focusIndex;
+			                Lampa.Settings.create(String(MAIN_COMPONENT), cp);
+			              } catch (_) { }
+			            }
 
-		            function openExtraDetailScreen(meta, backIndexExtras, focusIndex) {
-		              try {
-		                if (typeof backIndexExtras === 'number') uiBackExtrasIndex = backIndexExtras;
-		                var st = meta && meta.urlAbs ? getInstalledState(meta.urlAbs) : { installed: false, status: null };
-		                var defaultFocus = st.installed ? 2 : 1;
-		                var focus = (typeof focusIndex === 'number') ? focusIndex : defaultFocus;
+			            function openExtraDetailScreen(meta, backIndexExtras, focusIndex) {
+			              try {
+			                uiRoute = 'detail';
+			                uiDetailMeta = meta || null;
+			                if (typeof backIndexExtras === 'number') uiBackExtrasIndex = backIndexExtras;
+			                var st = meta && meta.urlAbs ? getInstalledState(meta.urlAbs) : { installed: false, status: null };
+			                var defaultFocus = st.installed ? 2 : 1;
+			                var focus = (typeof focusIndex === 'number') ? focusIndex : defaultFocus;
 
 		                resetMainParams();
 		                buildExtraDetailScreen(meta, st);
 
-		                if (!window.Lampa || !Lampa.Settings || !Lampa.Settings.create) return;
-		                var cp = {
-		                  onBack: function () { openExtrasScreen(uiBackMainIndex, uiBackExtrasIndex); }
-		                };
-		                if (typeof focus === 'number' && focus > 0) cp.last_index = focus;
-		                Lampa.Settings.create(String(MAIN_COMPONENT), cp);
-		              } catch (_) { }
-		            }
+			                if (!window.Lampa || !Lampa.Settings || !Lampa.Settings.create) return;
+			                var cp = {
+			                  onBack: function () { openExtrasScreen(uiBackMainIndex, uiBackExtrasIndex); },
+			                  __bl_ap_internal: true,
+			                  __bl_ap_route: 'detail'
+			                };
+			                if (typeof focus === 'number' && focus > 0) cp.last_index = focus;
+			                Lampa.Settings.create(String(MAIN_COMPONENT), cp);
+			              } catch (_) { }
+			            }
+
+			            function uiRefresh() {
+			              try {
+			                // Only refresh when our component is currently open; never open Settings from here.
+			                var cur = '';
+			                try { cur = (BL.Core && BL.Core.getQueryParam) ? String(BL.Core.getQueryParam('settings') || '') : ''; } catch (_) { cur = ''; }
+			                if (cur !== String(MAIN_COMPONENT)) return;
+
+			                var focus = getSettingsFocusIndexSafe();
+			                if (uiRoute === 'detail' && uiDetailMeta) openExtraDetailScreen(uiDetailMeta, uiBackExtrasIndex, focus);
+			                else if (uiRoute === 'extras') openExtrasScreen(uiBackMainIndex, focus);
+			                else openMainScreen(focus);
+			              } catch (_) { }
+			            }
+
+			            try {
+			              BL.Factory = BL.Factory || {};
+			              BL.Factory.autopluginUiRefresh = uiRefresh;
+
+			              if (!BL.Factory.__autopluginSettingsHookInstalled && window.Lampa && Lampa.Settings && Lampa.Settings.listener && Lampa.Settings.listener.follow) {
+			                BL.Factory.__autopluginSettingsHookInstalled = true;
+			                Lampa.Settings.listener.follow('open', function (e) {
+			                  try {
+			                    if (!e || !e.name) return;
+			                    if (e.name === 'main') {
+			                      uiRoute = 'main';
+			                      uiDetailMeta = null;
+			                      return;
+			                    }
+			                    if (e.name !== MAIN_COMPONENT) return;
+			                    if (e.params && e.params.__bl_ap_internal) return;
+
+			                    // External open (or update() recreate): restore navigation params and start from root.
+			                    setTimeout(function () {
+			                      try { openMainScreen(0); } catch (_) { }
+			                    }, 0);
+			                  } catch (_) { }
+			                });
+			              }
+			            } catch (_) { }
 
 			            function extraMeta(raw) {
 			              try {
@@ -1039,28 +1115,40 @@
         // ============================================================================
         var currentPlugin = null;
 
-        function onWinError(ev) {
-          if (LOG_MODE === 0) return;
-          try {
-            var msg = ev && ev.message ? ev.message : 'error';
-            var file = ev && ev.filename ? ev.filename : '(no file)';
-            var line = (ev && typeof ev.lineno === 'number') ? ev.lineno : '?';
-            var col = (ev && typeof ev.colno === 'number') ? ev.colno : '?';
-            var stack = (ev && ev.error && ev.error.stack) ? String(ev.error.stack).split('\n')[0] : '';
-            var src = currentPlugin || file;
-            showError(src, msg, String(file) + ':' + String(line) + ':' + String(col) + (stack ? (' | ' + stack) : ''));
-          } catch (_) { }
-        }
+	        function onWinError(ev) {
+	          if (LOG_MODE === 0) return;
+	          try {
+	            var src0 = currentPlugin || (ev && ev.filename ? ev.filename : 'window');
+	            if (BL.Log && typeof BL.Log.showException === 'function') {
+	              BL.Log.showException(src0, ev, { type: 'window.onerror' });
+	              return;
+	            }
 
-        function onUnhandledRejection(ev) {
-          if (LOG_MODE === 0) return;
-          try {
-            var reason = ev && ev.reason ? ev.reason : 'unhandled rejection';
-            var msg = fmtErr(reason);
-            var stack = (reason && reason.stack) ? String(reason.stack).split('\n')[0] : '';
-            showError(currentPlugin || 'Promise', msg, stack);
-          } catch (_) { }
-        }
+	            var msg = ev && ev.message ? ev.message : 'error';
+	            var file = ev && ev.filename ? ev.filename : '(no file)';
+	            var line = (ev && typeof ev.lineno === 'number') ? ev.lineno : '?';
+	            var col = (ev && typeof ev.colno === 'number') ? ev.colno : '?';
+	            var stack = (ev && ev.error && ev.error.stack) ? String(ev.error.stack).split('\n')[0] : '';
+	            var src = currentPlugin || file;
+	            showError(src, msg, String(file) + ':' + String(line) + ':' + String(col) + (stack ? (' | ' + stack) : ''));
+	          } catch (_) { }
+	        }
+
+	        function onUnhandledRejection(ev) {
+	          if (LOG_MODE === 0) return;
+	          try {
+	            var src0 = currentPlugin || 'Promise';
+	            if (BL.Log && typeof BL.Log.showException === 'function') {
+	              BL.Log.showException(src0, ev, { type: 'unhandledrejection' });
+	              return;
+	            }
+
+	            var reason = ev && ev.reason ? ev.reason : 'unhandled rejection';
+	            var msg = fmtErr(reason);
+	            var stack = (reason && reason.stack) ? String(reason.stack).split('\n')[0] : '';
+	            showError(currentPlugin || 'Promise', msg, stack);
+	          } catch (_) { }
+	        }
 
         function attachGlobalHooks() {
           if (LOG_MODE === 0) return;
@@ -1160,15 +1248,15 @@
             if (!plugins || typeof plugins.length !== 'number') plugins = [];
 
             var idx = findPluginIndex(plugins, urlAbs);
-            if (idx >= 0) {
-              if (AUTO_ENABLE_DISABLED && plugins[idx] && plugins[idx].status === 0) {
-                plugins[idx].status = 1;
-                Lampa.Storage.set('plugins', plugins);
-                try { if (Lampa.Settings && Lampa.Settings.update) Lampa.Settings.update(); } catch (_) { }
-                showOk('install', 'enabled', urlAbs);
-                resolveOne({ ok: true, action: 'enabled', url: urlAbs, why: 'was disabled' });
-                return;
-              }
+	            if (idx >= 0) {
+	              if (AUTO_ENABLE_DISABLED && plugins[idx] && plugins[idx].status === 0) {
+	                plugins[idx].status = 1;
+	                Lampa.Storage.set('plugins', plugins);
+	                refreshInstallerSettingsUi();
+	                showOk('install', 'enabled', urlAbs);
+	                resolveOne({ ok: true, action: 'enabled', url: urlAbs, why: 'was disabled' });
+	                return;
+	              }
 
               showDbg('install', 'skip (already)', urlAbs);
               resolveOne({ ok: true, action: 'skip', url: urlAbs, why: 'already installed' });
@@ -1182,12 +1270,11 @@
               status: 1
             };
 
-            plugins.push(entry);
-            Lampa.Storage.set('plugins', plugins);
+	            plugins.push(entry);
+	            Lampa.Storage.set('plugins', plugins);
+	            refreshInstallerSettingsUi();
 
-            try { if (Lampa.Settings && Lampa.Settings.update) Lampa.Settings.update(); } catch (_) { }
-
-            showOk('install', 'installed', urlAbs);
+	            showOk('install', 'installed', urlAbs);
 
             if (!INJECT_NEWLY_INSTALLED) {
               resolveOne({ ok: true, action: 'installed', url: urlAbs, why: 'no-inject' });
