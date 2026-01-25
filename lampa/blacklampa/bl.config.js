@@ -45,7 +45,7 @@
   setDefault(ui, 'popupScrollTolPx', 40);
 
   // Logging
-  setDefault(log, 'defaultMode', 1);
+  setDefault(log, 'defaultMode', 0);
   setDefault(log, 'titlePrefix', 'BlackLampa log');
   setDefault(log, 'modeLsKey', 'aplog');
   setDefault(log, 'modeQueryParams', ['aplog', 'apmode']);
