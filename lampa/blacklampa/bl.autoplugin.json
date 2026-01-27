@@ -13,7 +13,6 @@
     "reloadDelaySec": 0
   },
   "plugins": [
-    { "url": "https://skaztv.online/store.js", "title": "store.js", "desc": "", "tags": ["store"] },
     { "url": "scripts/rating.js", "title": "rating.js", "desc": "", "tags": ["stats", "ui"] },
     { "url": "https://bywolf88.github.io/lampa-plugins/interface_mod.js", "title": "interface_mod.js", "desc": "", "tags": ["ui"] },
     { "url": "https://and7ey.github.io/lampa/head_filter.js", "title": "head_filter.js", "desc": "", "tags": ["ui"] },
@@ -23,14 +22,15 @@
     { "url": "https://tsynik.github.io/lampa/e.js", "title": "e.js", "desc": "", "tags": ["sources"] },
     { "url": "https://bylampa.github.io/source.js", "title": "source.js", "desc": "", "tags": ["sources"] },
     { "url": "https://nb557.github.io/plugins/online_mod.js", "title": "online_mod.js", "desc": "", "tags": ["player"] },
-    { "url": "https://amikdn.github.io/buttons.js", "title": "buttons.js", "desc": "", "tags": ["ui"] },
+    { "url": "https://lampa.stream/modss", "title": "modss", "desc": "", "tags": ["store"] },
     { "url": "https://bwa.to/cloud.js", "title": "cloud.js", "desc": "", "tags": ["cloud"] },
+    { "url": "https://skaztv.online/store.js", "title": "store.js", "desc": "", "tags": ["store"] },
+    { "url": "https://amikdn.github.io/buttons.js", "title": "buttons.js", "desc": "", "tags": ["ui"] },
+    { "url": "https://skaztv.online/store.js", "title": "store.js", "desc": "", "tags": ["store"] },
     { "url": "https://aviamovie.github.io/surs.js", "title": "surs.js", "desc": "", "tags": ["sources"] }
   ],
   "disabled": [
-    { "url": "https://lampa.stream/modss", "title": "modss", "desc": "", "tags": ["store"] },
     { "url": "scripts/store.js", "title": "rating.js", "desc": "", "tags": ["stats", "ui"] },
-    { "url": "scripts/addon.js", "title": "BylampaAddon(Fixed)", "desc": "Bylampa addon fixed", "tags": ["stats", "ui"] },
     { "url": "https://bdvburik.github.io/title.js", "title": "title.js", "desc": "", "reason": "commented in source list", "tags": ["ui"], "since": 0 },
     { "url": "http://skaz.tv/onlines.js", "title": "onlines.js", "desc": "", "reason": "commented in source list", "tags": ["sources"], "since": 0 },
     { "url": "http://skaz.tv/vcdn.js", "title": "vcdn.js", "desc": "", "reason": "commented in source list", "tags": ["sources", "cloud"], "since": 0 },
