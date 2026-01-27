@@ -29,6 +29,7 @@
     { "url": "https://aviamovie.github.io/surs.js", "title": "surs.js", "desc": "", "tags": ["sources"] }
   ],
  "disabled": [
+    { "url": "http://smotret24.com/online.js", "title": "online24.js", "desc": "", "tags": ["sources"] },
     { "url": "https://tsynik.github.io/lampa/e.js", "title": "e.js", "desc": "", "tags": ["sources"] },
     { "url": "https://rc.bwa.to/sisi.js", "title": "Клубничка", "desc": "", "tags": ["sources"] },
     { "url": "https://lampa.stream/modss", "title": "modss", "desc": "", "tags": ["store"] },
