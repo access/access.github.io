@@ -13,9 +13,8 @@
     "reloadDelaySec": 0
   },
   "plugins": [
-    { "url": "scripts/rating.js", "title": "rating.js", "desc": "", "tags": ["stats", "ui"] },
-    { "url": "https://bwa.to/cloud.js", "title": "cloud.js", "desc": "", "tags": ["cloud"] },
     { "url": "https://skaztv.online/store.js", "title": "store.js", "desc": "", "tags": ["store"] },
+    { "url": "scripts/rating.js", "title": "rating.js", "desc": "", "tags": ["stats", "ui"] },
     { "url": "https://bywolf88.github.io/lampa-plugins/interface_mod.js", "title": "interface_mod.js", "desc": "", "tags": ["ui"] },
     { "url": "https://and7ey.github.io/lampa/head_filter.js", "title": "head_filter.js", "desc": "", "tags": ["ui"] },
     { "url": "https://and7ey.github.io/lampa/noshots.js", "title": "noshots.js", "desc": "", "tags": ["ui", "tricks"] },
@@ -25,6 +24,7 @@
     { "url": "https://bylampa.github.io/source.js", "title": "source.js", "desc": "", "tags": ["sources"] },
     { "url": "https://nb557.github.io/plugins/online_mod.js", "title": "online_mod.js", "desc": "", "tags": ["player"] },
     { "url": "https://amikdn.github.io/buttons.js", "title": "buttons.js", "desc": "", "tags": ["ui"] },
+    { "url": "https://bwa.to/cloud.js", "title": "cloud.js", "desc": "", "tags": ["cloud"] },
     { "url": "https://aviamovie.github.io/surs.js", "title": "surs.js", "desc": "", "tags": ["sources"] }
   ],
   "disabled": [
