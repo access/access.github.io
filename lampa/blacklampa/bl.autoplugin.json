@@ -29,7 +29,8 @@
     { "url": "https://skaztv.online/store.js", "title": "store.js", "desc": "", "tags": ["store"] },
     { "url": "https://aviamovie.github.io/surs.js", "title": "surs.js", "desc": "", "tags": ["sources"] }
   ],
-  "disabled": [
+ "disabled": [
+    { "url": "https://tsynik.github.io/lampa/e.js", "title": "e.js", "desc": "", "tags": ["sources"] },
     { "url": "https://lampa.stream/modss", "title": "modss", "desc": "", "tags": ["store"] },
     { "url": "scripts/store.js", "title": "rating.js", "desc": "", "tags": ["stats", "ui"] },
     { "url": "https://bdvburik.github.io/title.js", "title": "title.js", "desc": "", "reason": "commented in source list", "tags": ["ui"], "since": 0 },
