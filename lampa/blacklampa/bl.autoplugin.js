@@ -225,17 +225,9 @@
 	        function refreshInstallerSettingsUi() {
 	          try {
 	            if (!window.Lampa) return;
-	            // IMPORTANT:
-	            // Lampa.Settings.update() recreates the component with `{last_index}` only
-	            // and DROPS params like `onBack`, breaking submenu navigation.
-	            // Prefer our component-local refresh (if installed).
 	            try {
-	              if (window.BL && BL.Factory && typeof BL.Factory.autopluginUiRefresh === 'function') {
-	                BL.Factory.autopluginUiRefresh();
-	                return;
-	              }
+	              if (window.BL && BL.PluginsInstaller && typeof BL.PluginsInstaller.refresh === 'function') return BL.PluginsInstaller.refresh();
 	            } catch (_) { }
-	            try { if (Lampa.Settings && Lampa.Settings.update) Lampa.Settings.update(); } catch (_) { }
 	          } catch (_) { }
 	        }
 
@@ -314,6 +306,80 @@
 	          } catch (_) { }
 	          return -1;
 	        }
+
+	        function getInstalledState(urlAbs) {
+	          var list = getInstalledPlugins();
+	          var idx = findPluginIndexAny(list, urlAbs);
+	          var st = (idx >= 0 && list[idx] && typeof list[idx].status === 'number') ? list[idx].status : null;
+	          return { installed: idx >= 0, status: st };
+	        }
+
+	        function removeOnePlugin(urlAbs, title) {
+	          if (!window.Lampa || !Lampa.Storage || !Lampa.Storage.get || !Lampa.Storage.set) {
+	            showWarn('Settings', 'remove plugin', 'Lampa.Storage missing');
+	            return 0;
+	          }
+
+	          var target = String(urlAbs || '');
+	          if (!target) return 0;
+	          title = String(title || '') || guessName(target);
+
+	          var list = getInstalledPlugins();
+	          var kept = [];
+	          var removed = 0;
+
+	          for (var i = 0; i < list.length; i++) {
+	            var u = getPluginUrl(list[i]);
+	            var ua = '';
+	            try { ua = absUrl(u); } catch (_) { ua = String(u || ''); }
+	            if (u && (u === target || ua === target)) removed++;
+	            else kept.push(list[i]);
+	          }
+
+	          if (removed) setInstalledPlugins(kept);
+
+	          if (removed) {
+	            showOk('Settings', 'plugin removed', title || target);
+	            try { if (Lampa.Noty && Lampa.Noty.show) Lampa.Noty.show('[[BlackLampa]] Плагин удалён: ' + String(title || target)); } catch (_) { }
+	          } else {
+	            showWarn('Settings', 'remove skip', title || target);
+	            try { if (Lampa.Noty && Lampa.Noty.show) Lampa.Noty.show('[[BlackLampa]] Плагин не установлен: ' + String(title || target)); } catch (_) { }
+	          }
+
+	          return removed;
+	        }
+
+	        function setPluginStatus(urlAbs, status) {
+	          if (!window.Lampa || !Lampa.Storage || !Lampa.Storage.get || !Lampa.Storage.set) {
+	            showWarn('Settings', 'set status', 'Lampa.Storage missing');
+	            return false;
+	          }
+
+	          var target = String(urlAbs || '');
+	          if (!target) return false;
+
+	          var list = getInstalledPlugins();
+	          var idx = findPluginIndexAny(list, target);
+	          if (idx < 0 || !list[idx]) return false;
+
+	          list[idx].status = status;
+	          setInstalledPlugins(list);
+
+	          try {
+	            if (status === 0) {
+	              showOk('Settings', 'plugin disabled', target);
+	              try { if (Lampa.Noty && Lampa.Noty.show) Lampa.Noty.show('[[BlackLampa]] Плагин отключён'); } catch (_) { }
+	            } else {
+	              showOk('Settings', 'plugin enabled', target);
+	              try { if (Lampa.Noty && Lampa.Noty.show) Lampa.Noty.show('[[BlackLampa]] Плагин включён'); } catch (_) { }
+	            }
+	          } catch (_) { }
+
+	          return true;
+	        }
+
+	        function enableOnePlugin(urlAbs) { return setPluginStatus(urlAbs, 1); }
+	        function disableOnePlugin(urlAbs) { return setPluginStatus(urlAbs, 0); }
 
         function removeAllPluginsLampa() {
           if (!window.Lampa || !Lampa.Storage || !Lampa.Storage.set) {
@@ -491,1182 +557,63 @@
         }
 
         // ============================================================================
-        // Settings UI
+        // Settings UI (moved to BL.PluginsInstaller)
         // ============================================================================
-        function initInstallerSettings() {
+        function initInstallerUiBridge() {
           try {
-            if (!window.Lampa || !Lampa.SettingsApi) return;
+            if (!window.BL || !BL.PluginsInstaller || typeof BL.PluginsInstaller.init !== 'function') return;
 
-            // Component ids are configured via BL.Config (single source of truth).
-            var blCfg = null;
-            try { blCfg = (BL.Config && typeof BL.Config.get === 'function') ? BL.Config.get() : BL.Config; } catch (_) { blCfg = BL.Config; }
-            blCfg = blCfg || {};
-            var apUi = (blCfg.autoplugin && blCfg.autoplugin.settings) ? blCfg.autoplugin.settings : {};
-            var MAIN_COMPONENT = String(apUi.componentId || 'bl_autoplugin');
-            // Legacy ids from older versions (must be removed to avoid extra top-level settings пункты).
-            var LEGACY_EXTRAS_COMPONENT = String(apUi.extrasComponentId || 'bl_autoplugin_extras');
-            var LEGACY_EXTRA_PLUGIN_PREFIX = String(apUi.extraPluginComponentPrefix || 'bl_autoplugin_extras_plugin_');
-
-            function removeComponentSafe(id) {
-              try {
-                if (!id) return;
-                if (Lampa.SettingsApi.removeComponent) Lampa.SettingsApi.removeComponent(String(id));
-              } catch (_) { }
-            }
-
-            try {
-              // remove legacy component id if it was used before
-              removeComponentSafe('autoplugin_installer');
-              // remove previous ids to keep the ordered menu stable
-              removeComponentSafe('bl_autoplugin');
-              removeComponentSafe('bl_autoplugin_extras');
-              removeComponentSafe(MAIN_COMPONENT);
-              removeComponentSafe(LEGACY_EXTRAS_COMPONENT);
-
-              // Remove any dynamically created legacy components (e.g. per-plugin detail pages).
-              try {
-                if (Lampa.SettingsApi.allComponents && LEGACY_EXTRA_PLUGIN_PREFIX) {
-                  var all = Lampa.SettingsApi.allComponents();
-                  for (var k in all) {
-                    if (k && String(k).indexOf(String(LEGACY_EXTRA_PLUGIN_PREFIX)) === 0) removeComponentSafe(k);
-                  }
+            BL.PluginsInstaller.init({
+              getConfig: function () {
+                try { return (BL.Config && typeof BL.Config.get === 'function') ? (BL.Config.get() || {}) : (BL.Config || {}); } catch (_) { return BL.Config || {}; }
+              },
+              getManagedPlugins: function () {
+                try { return PLUGINS.slice ? PLUGINS.slice(0) : PLUGINS; } catch (_) { return []; }
+              },
+              getExtrasPlugins: function () {
+                try { return (cfg && Array.isArray(cfg.disabled)) ? cfg.disabled : []; } catch (_) { return []; }
+              },
+              getInstalledState: function (urlAbs) {
+                try { return getInstalledState(String(urlAbs || '')); } catch (_) { return { installed: false, status: null }; }
+              },
+              installOne: function (urlAbs, o) {
+                try { return ensureInstalledOne(String(urlAbs || ''), o || {}); } catch (_) { return Promise.resolve({ ok: false }); }
+              },
+              removeOne: function (urlAbs) {
+                try { return Promise.resolve(removeOnePlugin(String(urlAbs || ''), '')); } catch (_) { return Promise.resolve(0); }
+              },
+              enableOne: function (urlAbs) {
+                try { return Promise.resolve(enableOnePlugin(String(urlAbs || ''))); } catch (_) { return Promise.resolve(false); }
+              },
+              disableOne: function (urlAbs) {
+                try { return Promise.resolve(disableOnePlugin(String(urlAbs || ''))); } catch (_) { return Promise.resolve(false); }
+              },
+              injectNow: function (urlAbs) {
+                try { return injectNowPlugin(String(urlAbs || '')); } catch (_) { return Promise.resolve({ ok: false }); }
+              },
+              removeAllLampaPlugins: function () {
+                try { return Promise.resolve(removeAllPluginsLampa()); } catch (_) { return Promise.resolve(0); }
+              },
+              removeManagedPluginsOnly: function () {
+                try { return Promise.resolve(removeManagedPluginsLampa()); } catch (_) { return Promise.resolve(0); }
+              },
+              factoryReset: function () {
+                try { resetLampa(); } catch (_) { }
+              },
+              resetFirstInstallFlags: function () {
+                try { resetFirstInstallFlags(); } catch (_) { }
+              },
+              statusStrings: function () {
+                try {
+                  var raw = getStatusInfoString();
+                  return { short: raw, help: getStatusHelpString(), raw: raw };
+                } catch (_) {
+                  return { short: '', help: '', raw: '' };
                 }
-              } catch (_) { }
-            } catch (_) { }
-
-            Lampa.SettingsApi.addComponent({
-              component: MAIN_COMPONENT,
-              name: 'AutoPlugin Installer',
-              icon: '<svg width="24" height="24" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M12 2a10 10 0 100 20 10 10 0 000-20zm1 14.5h-2v-2h2v2zm0-4h-2V6h2v6.5z" fill="currentColor"/></svg>'
+              }
             });
-
-            // Confirm dialog helper (TV/PC/mobile safe).
-            function confirmAction(title, text, onYes) {
-              try {
-                if (window.Lampa && Lampa.Modal && typeof Lampa.Modal.open === 'function' && window.$) {
-                  Lampa.Modal.open({
-                    title: String(title || ''),
-                    size: 'medium',
-                    align: 'center',
-                    mask: true,
-                    html: $('<div class="about">' + String(text || '') + '</div>'),
-                    buttons: [{
-                      name: 'Нет',
-                      onSelect: function () {
-                        try { if (Lampa.Modal && Lampa.Modal.close) Lampa.Modal.close(); } catch (_) { }
-                      }
-                    }, {
-                      name: 'Да',
-                      onSelect: function () {
-                        try { if (Lampa.Modal && Lampa.Modal.close) Lampa.Modal.close(); } catch (_) { }
-                        try { if (typeof onYes === 'function') onYes(); } catch (_) { }
-                      }
-                    }]
-                  });
-                  return;
-                }
-              } catch (_) { }
-
-              // Fallback: native confirm (should be rare in Lampa).
-              try { if (window.confirm(String(text || title || 'Confirm?'))) { if (typeof onYes === 'function') onYes(); } } catch (_) { }
-            }
-
-            var busy = false;
-	            function runOnce(title, text, fn) {
-	              if (busy) {
-	                try { if (Lampa.Noty && Lampa.Noty.show) Lampa.Noty.show('[[BlackLampa]] Операция уже выполняется...'); } catch (_) { }
-	                return;
-	              }
-	              confirmAction(title, text, function () {
-	                if (busy) return;
-	                busy = true;
-	                try { if (Lampa.Noty && Lampa.Noty.show) Lampa.Noty.show('[[BlackLampa]] Выполняется...'); } catch (_) { }
-	                setTimeout(function () {
-	                  var res = null;
-	                  try { res = fn && fn(); } catch (e) { showError('Settings', 'action failed', fmtErr(e)); }
-
-	                  // Support async actions (Promise) without blocking the UI thread.
-	                  if (res && typeof res.then === 'function') {
-	                    res.then(function () {
-	                      busy = false;
-	                      refreshInstallerSettingsUi();
-	                    }, function (e2) {
-	                      showError('Settings', 'action failed', fmtErr(e2));
-	                      busy = false;
-	                      refreshInstallerSettingsUi();
-	                    });
-	                    return;
-	                  }
-
-	                  busy = false;
-	                  refreshInstallerSettingsUi();
-	                }, 0);
-	              });
-		            }
-
-		            // ============================================================================
-		            // AutoPlugin Installer menu (ordered, with submenus)
-		            // Order (top -> bottom):
-		            // 1) Переинициализация (reset first-install flags)
-		            // 2) Сброс Lampa до заводских (factory reset)
-		            // 3) Удалить все плагины Lampa
-		            // 4) Удалить плагины AutoPlugin Installer (active plugins[] only)
-		            // 5) Дополнительные плагины (submenu)
-		            // X) Статус (last)
-
-			            // Internal navigation: keep ONLY one Settings component (MAIN_COMPONENT).
-			            // Submenus are rendered by rebuilding params and reopening MAIN_COMPONENT.
-				            var uiBackMainIndex = 0;
-				            var uiBackExtrasIndex = 0;
-				            var uiRoute = 'main'; // main | extras | detail
-				            var uiDetailMeta = null;
-				            var uiBackBlocklistIndex = 0;
-				            var uiBackUserRuleIndex = 0;
-				            var uiUserRuleId = '';
-
-			            function getSettingsFocusIndexSafe() {
-			              try {
-			                if (!document || !document.querySelector) return 0;
-			                var body = document.querySelector('.settings__body');
-			                if (!body) return 0;
-			                var focus = body.querySelector('.selector.focus');
-			                if (!focus) return 0;
-			                var nodes = body.querySelectorAll('.selector');
-			                for (var i = 0; i < nodes.length; i++) {
-			                  if (nodes[i] === focus) return i;
-			                }
-			              } catch (_) { }
-			              return 0;
-			            }
-
-		            function resetMainParams() {
-		              try { if (Lampa.SettingsApi.removeParams) Lampa.SettingsApi.removeParams(String(MAIN_COMPONENT)); } catch (_) { }
-		            }
-
-			            function openMainScreen(focusIndex) {
-			              try {
-			                uiRoute = 'main';
-			                uiDetailMeta = null;
-			                resetMainParams();
-			                buildMainScreen();
-
-			                if (!window.Lampa || !Lampa.Settings || !Lampa.Settings.create) return;
-			                var cp = { __bl_ap_internal: true, __bl_ap_route: 'main' };
-			                if (typeof focusIndex === 'number' && focusIndex > 0) cp.last_index = focusIndex;
-			                Lampa.Settings.create(String(MAIN_COMPONENT), cp);
-			              } catch (_) { }
-			            }
-
-			            function openExtrasScreen(backIndexMain, focusIndex) {
-			              try {
-			                uiRoute = 'extras';
-			                uiDetailMeta = null;
-			                if (typeof backIndexMain === 'number') uiBackMainIndex = backIndexMain;
-			                resetMainParams();
-			                buildExtrasScreen();
-
-			                if (!window.Lampa || !Lampa.Settings || !Lampa.Settings.create) return;
-			                var cp = {
-			                  onBack: function () { openMainScreen(uiBackMainIndex); },
-			                  __bl_ap_internal: true,
-			                  __bl_ap_route: 'extras'
-			                };
-			                if (typeof focusIndex === 'number' && focusIndex > 0) cp.last_index = focusIndex;
-			                Lampa.Settings.create(String(MAIN_COMPONENT), cp);
-			              } catch (_) { }
-			            }
-
-			            function openExtraDetailScreen(meta, backIndexExtras, focusIndex) {
-			              try {
-			                uiRoute = 'detail';
-			                uiDetailMeta = meta || null;
-			                if (typeof backIndexExtras === 'number') uiBackExtrasIndex = backIndexExtras;
-			                var st = meta && meta.urlAbs ? getInstalledState(meta.urlAbs) : { installed: false, status: null };
-			                var defaultFocus = st.installed ? 2 : 1;
-			                var focus = (typeof focusIndex === 'number') ? focusIndex : defaultFocus;
-
-		                resetMainParams();
-		                buildExtraDetailScreen(meta, st);
-
-			                if (!window.Lampa || !Lampa.Settings || !Lampa.Settings.create) return;
-			                var cp = {
-			                  onBack: function () { openExtrasScreen(uiBackMainIndex, uiBackExtrasIndex); },
-			                  __bl_ap_internal: true,
-			                  __bl_ap_route: 'detail'
-			                };
-			                if (typeof focus === 'number' && focus > 0) cp.last_index = focus;
-			                Lampa.Settings.create(String(MAIN_COMPONENT), cp);
-			              } catch (_) { }
-			            }
-
-				            function uiRefresh() {
-				              try {
-				                // Only refresh when our component is currently open; never open Settings from here.
-				                try {
-				                  if (window.Lampa && Lampa.Controller && typeof Lampa.Controller.enabled === 'function') {
-				                    var en = Lampa.Controller.enabled();
-				                    if (en && en.name && String(en.name) !== 'settings_component') return;
-				                  }
-				                } catch (_) { }
-
-				                var cur = '';
-				                try { cur = (BL.Core && BL.Core.getQueryParam) ? String(BL.Core.getQueryParam('settings') || '') : ''; } catch (_) { cur = ''; }
-				                if (cur !== String(MAIN_COMPONENT)) return;
-
-				                var focus = getSettingsFocusIndexSafe();
-			                if (uiRoute === 'detail' && uiDetailMeta) openExtraDetailScreen(uiDetailMeta, uiBackExtrasIndex, focus);
-			                else if (uiRoute === 'extras') openExtrasScreen(uiBackMainIndex, focus);
-			                else if (uiRoute === 'blocklist') openBlocklistScreen(uiBackMainIndex, focus);
-			                else if (uiRoute === 'blocklist_builtin') openBlocklistBuiltinScreen(uiBackBlocklistIndex, focus);
-			                else if (uiRoute === 'blocklist_user') openBlocklistUserRulesScreen(uiBackBlocklistIndex, focus);
-			                else if (uiRoute === 'blocklist_user_detail' && uiUserRuleId) openBlocklistUserRuleDetailScreen(uiUserRuleId, uiBackUserRuleIndex, focus);
-			                else if (uiRoute === 'blocklist_add') openBlocklistAddScreen(uiBackBlocklistIndex, focus);
-			                else openMainScreen(focus);
-			              } catch (_) { }
-			            }
-
-			            try {
-			              BL.Factory = BL.Factory || {};
-			              BL.Factory.autopluginUiRefresh = uiRefresh;
-
-			              if (!BL.Factory.__autopluginSettingsHookInstalled && window.Lampa && Lampa.Settings && Lampa.Settings.listener && Lampa.Settings.listener.follow) {
-			                BL.Factory.__autopluginSettingsHookInstalled = true;
-				                Lampa.Settings.listener.follow('open', function (e) {
-				                  try {
-				                    if (!e || !e.name) return;
-				                    if (e.name === 'main') {
-				                      uiRoute = 'main';
-				                      uiDetailMeta = null;
-				                      uiBackMainIndex = 0;
-				                      uiBackExtrasIndex = 0;
-				                      uiBackBlocklistIndex = 0;
-				                      uiBackUserRuleIndex = 0;
-				                      uiUserRuleId = '';
-				                      return;
-				                    }
-				                    if (e.name !== MAIN_COMPONENT) return;
-				                    if (e.params && e.params.__bl_ap_internal) return;
-
-				                    // External open (or update() recreate): restore navigation params and start from root.
-				                    setTimeout(function () {
-				                      try {
-				                        uiRoute = 'main';
-				                        uiDetailMeta = null;
-				                        uiBackMainIndex = 0;
-				                        uiBackExtrasIndex = 0;
-				                        uiBackBlocklistIndex = 0;
-				                        uiBackUserRuleIndex = 0;
-				                        uiUserRuleId = '';
-				                        openMainScreen(0);
-				                      } catch (_) { }
-				                    }, 0);
-				                  } catch (_) { }
-				                });
-			              }
-			            } catch (_) { }
-
-			            function extraMeta(raw) {
-			              try {
-			                var url = getPluginUrl(raw);
-			                if (!url) return null;
-			                var urlAbs = absUrl(url);
-
-		                var title = '';
-		                var desc = '';
-		                try { if (raw && typeof raw === 'object' && !Array.isArray(raw) && typeof raw.title === 'string') title = String(raw.title || ''); } catch (_) { title = ''; }
-			                try { if (raw && typeof raw === 'object' && !Array.isArray(raw) && typeof raw.desc === 'string') desc = String(raw.desc || ''); } catch (_) { desc = ''; }
-
-			                if (!title) title = guessName(urlAbs);
-			                // Leave description empty when not provided (URL is shown separately in UI).
-			                if (!desc) desc = '';
-
-			                var hash = djb2('extra|' + urlAbs);
-			                return { raw: raw, url: url, urlAbs: urlAbs, title: title, desc: desc, hash: hash };
-			              } catch (_) {
-			                return null;
-			              }
-			            }
-
-		            function getInstalledState(urlAbs) {
-		              var list = getInstalledPlugins();
-		              var idx = findPluginIndexAny(list, urlAbs);
-		              var st = (idx >= 0 && list[idx] && typeof list[idx].status === 'number') ? list[idx].status : null;
-		              return { installed: idx >= 0, status: st };
-		            }
-
-		            function removeOnePlugin(urlAbs, title) {
-		              if (!window.Lampa || !Lampa.Storage || !Lampa.Storage.get || !Lampa.Storage.set) {
-		                showWarn('Settings', 'remove plugin', 'Lampa.Storage missing');
-		                return 0;
-		              }
-
-		              var list = getInstalledPlugins();
-		              var kept = [];
-		              var removed = 0;
-
-		              for (var i = 0; i < list.length; i++) {
-		                var u = getPluginUrl(list[i]);
-		                var ua = '';
-		                try { ua = absUrl(u); } catch (_) { ua = String(u || ''); }
-		                if (u && (u === urlAbs || ua === urlAbs)) removed++;
-		                else kept.push(list[i]);
-		              }
-
-		              if (removed) setInstalledPlugins(kept);
-
-		              if (removed) {
-		                showOk('Settings', 'plugin removed', title || urlAbs);
-		                try { if (Lampa.Noty && Lampa.Noty.show) Lampa.Noty.show('[[BlackLampa]] Плагин удалён: ' + String(title || urlAbs)); } catch (_) { }
-		              } else {
-		                showWarn('Settings', 'remove skip', title || urlAbs);
-		                try { if (Lampa.Noty && Lampa.Noty.show) Lampa.Noty.show('[[BlackLampa]] Плагин не установлен: ' + String(title || urlAbs)); } catch (_) { }
-		              }
-
-		              return removed;
-		            }
-
-			            function buildExtrasScreen() {
-			              try {
-			                var disabled = (cfg && Array.isArray(cfg.disabled)) ? cfg.disabled : [];
-		                if (!disabled.length) {
-		                  var none = 'Нет дополнительных плагинов.';
-		                  Lampa.SettingsApi.addParam({
-		                    component: MAIN_COMPONENT,
-		                    param: { name: 'ap_extras_none', type: 'static', values: none, default: none },
-		                    field: { name: 'Дополнительные плагины', description: none }
-		                  });
-		                  return;
-		                }
-
-		                var idx = 0;
-		                for (var di = 0; di < disabled.length; di++) {
-		                  (function (raw, rowIndex) {
-		                    var meta = extraMeta(raw);
-		                    if (!meta) return;
-
-			                    Lampa.SettingsApi.addParam({
-			                      component: MAIN_COMPONENT,
-			                      param: { name: 'ap_extras_' + String(meta.hash), type: 'static', default: true },
-			                      field: { name: meta.title, description: meta.desc },
-			                      onRender: function (item) {
-			                        try {
-			                          if (item && item.on) {
-			                            item.on('hover:enter', function () {
-			                              openExtraDetailScreen(meta, rowIndex);
-			                            });
-			                          }
-
-			                          // URL line (soft, second line under the title).
-			                          try {
-			                            if (!window.$ || !item) return;
-			                            var $d = item.find('.settings-param__descr');
-			                            if (!$d.length) {
-			                              item.append('<div class="settings-param__descr"></div>');
-			                              $d = item.find('.settings-param__descr');
-			                            }
-			                            if ($d.find('.bl-ap-url').length === 0) {
-			                              var $u = $('<div class="bl-ap-url"></div>');
-			                              $u.text(String(meta.urlAbs || ''));
-			                              $u.css({
-			                                opacity: '0.9',
-			                                'font-size': '0.88em',
-			                                'word-break': 'break-all',
-			                                'margin-top': meta.desc ? '0.25em' : '0'
-			                              });
-			                              $d.append($u);
-			                            }
-			                          } catch (_) { }
-
-			                          // Status indicator (like addon.js): active / disabled / not installed.
-			                          if (!window.$ || !item) return;
-			                          if (item.find('.settings-param__status').length === 0) item.append('<div class="settings-param__status one"></div>');
-
-			                          var st = getInstalledState(meta.urlAbs);
-			                          var $st = item.find('.settings-param__status');
-			                          if (st.installed && st.status !== 0) $st.css('background-color', '').removeClass('active error').addClass('active');
-			                          else if (st.installed && st.status === 0) $st.removeClass('active error').css('background-color', 'rgb(255, 165, 0)');
-			                          else $st.css('background-color', '').removeClass('active error').addClass('error');
-			                        } catch (_) { }
-			                      }
-			                    });
-			                  })(disabled[di], idx);
-		                  idx++;
-		                }
-		              } catch (_) { }
-		            }
-
-		            function buildExtraDetailScreen(meta, st) {
-		              try {
-		                if (!meta || !meta.urlAbs) {
-		                  var bad = 'Плагин не найден.';
-		                  Lampa.SettingsApi.addParam({
-		                    component: MAIN_COMPONENT,
-		                    param: { name: 'ap_extra_not_found', type: 'static', values: bad, default: bad },
-		                    field: { name: 'Дополнительные плагины', description: bad }
-		                  });
-		                  return;
-		                }
-
-		                st = st || getInstalledState(meta.urlAbs);
-
-		                // Info
-		                try {
-		                  var info = String(meta.desc || '');
-		                  if (info) info = info + '\n';
-		                  info = info + String(meta.urlAbs);
-		                  Lampa.SettingsApi.addParam({
-		                    component: MAIN_COMPONENT,
-		                    param: { name: 'ap_extra_info', type: 'static', values: info, default: info },
-		                    field: { name: meta.title, description: info }
-		                  });
-		                } catch (_) { }
-
-		                // Action: install
-		                if (!st.installed) {
-		                  try {
-		                    Lampa.SettingsApi.addParam({
-		                      component: MAIN_COMPONENT,
-		                      param: { name: 'ap_extra_install', type: 'button' },
-		                      field: { name: 'Установить', description: 'Добавляет плагин в расширения Lampa.' },
-		                      onChange: function () {
-		                        // WHY: manual install from disabled[] must NOT reset first-install flags.
-		                        runOnce('Установить: ' + meta.title, 'Установить плагин?\n\n' + meta.title + '\n' + meta.urlAbs, function () {
-		                          return ensureInstalledOne(meta.urlAbs).then(function (r) {
-		                            if (r && r.ok) {
-		                              try { if (Lampa.Noty && Lampa.Noty.show) Lampa.Noty.show('[[BlackLampa]] Установлено: ' + meta.title); } catch (_) { }
-		                            } else {
-		                              try { if (Lampa.Noty && Lampa.Noty.show) Lampa.Noty.show('[[BlackLampa]] Ошибка установки: ' + meta.title); } catch (_) { }
-		                            }
-		                            openExtraDetailScreen(meta, uiBackExtrasIndex, 2);
-		                          });
-		                        });
-		                      }
-		                    });
-		                  } catch (_) { }
-		                } else {
-		                  try {
-		                    var note = (st.status === 0) ? 'Плагин уже установлен, но отключён в расширениях.' : 'Плагин уже установлен.';
-		                    Lampa.SettingsApi.addParam({
-		                      component: MAIN_COMPONENT,
-		                      param: { name: 'ap_extra_install_disabled', type: 'static', values: note, default: note },
-		                      field: { name: 'Установить', description: note }
-		                    });
-		                  } catch (_) { }
-		                }
-
-		                // Action: remove
-		                if (st.installed) {
-		                  try {
-		                    Lampa.SettingsApi.addParam({
-		                      component: MAIN_COMPONENT,
-		                      param: { name: 'ap_extra_remove', type: 'button' },
-		                      field: { name: 'Удалить', description: 'Удаляет плагин из расширений Lampa.' },
-		                      onChange: function () {
-		                        // WHY: manual remove must NOT reset first-install flags.
-		                        runOnce('Удалить: ' + meta.title, 'Удалить плагин?\n\n' + meta.title + '\n' + meta.urlAbs + '\n\nАвтоперезагрузка отключена. При необходимости перезапустите приложение вручную.', function () {
-		                          removeOnePlugin(meta.urlAbs, meta.title);
-		                          openExtraDetailScreen(meta, uiBackExtrasIndex, 1);
-		                        });
-		                      }
-		                    });
-		                  } catch (_) { }
-		                } else {
-		                  try {
-		                    var none = 'Плагин не установлен.';
-		                    Lampa.SettingsApi.addParam({
-		                      component: MAIN_COMPONENT,
-		                      param: { name: 'ap_extra_remove_disabled', type: 'static', values: none, default: none },
-		                      field: { name: 'Удалить', description: none }
-		                    });
-		                  } catch (_) { }
-		                }
-			              } catch (_) { }
-			            }
-
-			            // ============================================================================
-			            // URL Blocklist (network policy UI)
-			            // ============================================================================
-			            var BL_RULE_ADD_PATTERN = 'bl_net_rule_add_pattern';
-			            var BL_RULE_ADD_TYPE = 'bl_net_rule_add_type';
-			            var BL_RULE_ADD_CT = 'bl_net_rule_add_ct';
-			            var BL_RULE_ADD_BODY = 'bl_net_rule_add_body';
-
-			            function getBlocklistApi() {
-			              try {
-			                if (window.BL && BL.PolicyNetwork && BL.PolicyNetwork.blocklist) return BL.PolicyNetwork.blocklist;
-			              } catch (_) { }
-			              return null;
-			            }
-
-			            function ensureStatusDot(item) {
-			              try {
-			                if (!window.$ || !item) return null;
-			                if (item.find('.settings-param__status').length === 0) item.append('<div class="settings-param__status one"></div>');
-			                return item.find('.settings-param__status');
-			              } catch (_) {
-			                return null;
-			              }
-			            }
-
-			            function setStatusDot($st, enabled) {
-			              try {
-			                if (!$st || !$st.length) return;
-			                if (enabled) $st.css('background-color', '').removeClass('error').addClass('active');
-			                else $st.removeClass('active error').css('background-color', 'rgba(255,255,255,0.35)');
-			              } catch (_) { }
-			            }
-
-			            function buildBlocklistScreen() {
-			              try {
-			                Lampa.SettingsApi.addParam({
-			                  component: MAIN_COMPONENT,
-			                  param: { name: 'bl_blocklist_builtin', type: 'static', default: true },
-			                  field: { name: 'Встроенные правила', description: 'Категории встроенных блокировок BlackLampa (toggle ON/OFF).' },
-			                  onRender: function (item) {
-			                    try {
-			                      if (!item || !item.on) return;
-			                      item.on('hover:enter', function () { openBlocklistBuiltinScreen(0, 0); });
-			                    } catch (_) { }
-			                  }
-			                });
-			                Lampa.SettingsApi.addParam({
-			                  component: MAIN_COMPONENT,
-			                  param: { name: 'bl_blocklist_user', type: 'static', default: true },
-			                  field: { name: 'Пользовательские URL', description: 'Список пользовательских URL/Pattern правил (simple/advanced).' },
-			                  onRender: function (item) {
-			                    try {
-			                      if (!item || !item.on) return;
-			                      item.on('hover:enter', function () { openBlocklistUserRulesScreen(1, 0); });
-			                    } catch (_) { }
-			                  }
-			                });
-			                Lampa.SettingsApi.addParam({
-			                  component: MAIN_COMPONENT,
-			                  param: { name: 'bl_blocklist_add', type: 'static', default: true },
-			                  field: { name: 'Добавить URL', description: 'Добавить пользовательское правило блокировки.' },
-			                  onRender: function (item) {
-			                    try {
-			                      if (!item || !item.on) return;
-			                      item.on('hover:enter', function () { openBlocklistAddScreen(2, 0); });
-			                    } catch (_) { }
-			                  }
-			                });
-			              } catch (_) { }
-			            }
-
-			            function openBlocklistScreen(backIndexMain, focusIndex) {
-			              try {
-			                uiRoute = 'blocklist';
-			                uiDetailMeta = null;
-			                uiUserRuleId = '';
-			                uiBackUserRuleIndex = 0;
-			                if (typeof backIndexMain === 'number') uiBackMainIndex = backIndexMain;
-
-			                resetMainParams();
-			                buildBlocklistScreen();
-
-			                if (!window.Lampa || !Lampa.Settings || !Lampa.Settings.create) return;
-			                var cp = {
-			                  onBack: function () { openMainScreen(uiBackMainIndex); },
-			                  __bl_ap_internal: true,
-			                  __bl_ap_route: 'blocklist'
-			                };
-			                if (typeof focusIndex === 'number' && focusIndex > 0) cp.last_index = focusIndex;
-			                Lampa.Settings.create(String(MAIN_COMPONENT), cp);
-			              } catch (_) { }
-			            }
-
-			            function buildBlocklistBuiltinScreen() {
-			              try {
-			                var api = getBlocklistApi();
-			                var list = [];
-			                try { list = (api && api.builtin && typeof api.builtin.getAll === 'function') ? api.builtin.getAll() : []; } catch (_) { list = []; }
-
-			                if (!list || !list.length) {
-			                  var none = api ? 'Нет встроенных правил.' : 'Network policy не доступна.';
-			                  Lampa.SettingsApi.addParam({
-			                    component: MAIN_COMPONENT,
-			                    param: { name: 'bl_blocklist_builtin_none', type: 'static', values: none, default: none },
-			                    field: { name: 'URL Blocklist', description: none }
-			                  });
-			                  return;
-			                }
-
-			                for (var i = 0; i < list.length; i++) {
-			                  (function (rule, rowIndex) {
-			                    Lampa.SettingsApi.addParam({
-			                      component: MAIN_COMPONENT,
-			                      param: { name: 'bl_blocklist_builtin_' + String(rule.id || rowIndex), type: 'static', default: true },
-			                      field: { name: String(rule.title || 'Rule'), description: String(rule.description || '') },
-			                      onRender: function (item) {
-			                        try {
-			                          if (!window.$ || !item) return;
-			                          // Safer text rendering (no html injection from titles/descriptions).
-			                          try { item.find('.settings-param__name').text(String(rule.title || '')); } catch (_) { }
-			                          try {
-			                            var $d = item.find('.settings-param__descr');
-			                            if (!$d.length) {
-			                              item.append('<div class="settings-param__descr"></div>');
-			                              $d = item.find('.settings-param__descr');
-			                            }
-			                            $d.text(String(rule.description || ''));
-			                          } catch (_) { }
-
-			                          var $st = ensureStatusDot(item);
-			                          setStatusDot($st, !!rule.enabled);
-
-			                          if (item.on) {
-			                            item.on('hover:enter', function () {
-			                              try {
-			                                var api2 = getBlocklistApi();
-			                                if (api2 && api2.builtin && typeof api2.builtin.setEnabled === 'function') {
-			                                  api2.builtin.setEnabled(String(rule.id), !rule.enabled);
-			                                }
-			                              } catch (_) { }
-			                              openBlocklistBuiltinScreen(uiBackBlocklistIndex, rowIndex);
-			                            });
-			                          }
-			                        } catch (_) { }
-			                      }
-			                    });
-			                  })(list[i], i);
-			                }
-			              } catch (_) { }
-			            }
-
-			            function openBlocklistBuiltinScreen(backIndexBlocklist, focusIndex) {
-			              try {
-			                uiRoute = 'blocklist_builtin';
-			                uiDetailMeta = null;
-			                uiUserRuleId = '';
-			                uiBackUserRuleIndex = 0;
-			                if (typeof backIndexBlocklist === 'number') uiBackBlocklistIndex = backIndexBlocklist;
-
-			                resetMainParams();
-			                buildBlocklistBuiltinScreen();
-
-			                if (!window.Lampa || !Lampa.Settings || !Lampa.Settings.create) return;
-			                var cp = {
-			                  onBack: function () { openBlocklistScreen(uiBackMainIndex, uiBackBlocklistIndex); },
-			                  __bl_ap_internal: true,
-			                  __bl_ap_route: 'blocklist_builtin'
-			                };
-			                if (typeof focusIndex === 'number' && focusIndex > 0) cp.last_index = focusIndex;
-			                Lampa.Settings.create(String(MAIN_COMPONENT), cp);
-			              } catch (_) { }
-			            }
-
-			            function buildBlocklistUserRulesScreen() {
-			              try {
-			                var api = getBlocklistApi();
-			                var list = [];
-			                try { list = (api && api.user && typeof api.user.getAll === 'function') ? api.user.getAll() : []; } catch (_) { list = []; }
-
-			                if (!api) {
-			                  var na = 'Network policy не доступна.';
-			                  Lampa.SettingsApi.addParam({
-			                    component: MAIN_COMPONENT,
-			                    param: { name: 'bl_blocklist_user_na', type: 'static', values: na, default: na },
-			                    field: { name: 'URL Blocklist', description: na }
-			                  });
-			                  return;
-			                }
-
-			                if (!list || !list.length) {
-			                  var none = 'Нет пользовательских правил.';
-			                  Lampa.SettingsApi.addParam({
-			                    component: MAIN_COMPONENT,
-			                    param: { name: 'bl_blocklist_user_none', type: 'static', values: none, default: none },
-			                    field: { name: 'Пользовательские URL', description: none }
-			                  });
-			                  return;
-			                }
-
-			                for (var i = 0; i < list.length; i++) {
-			                  (function (rule, rowIndex) {
-			                    Lampa.SettingsApi.addParam({
-			                      component: MAIN_COMPONENT,
-			                      param: { name: 'bl_blocklist_user_' + String(rule.id || rowIndex), type: 'static', default: true },
-			                      field: { name: 'URL rule', description: '' },
-			                      onRender: function (item) {
-			                        try {
-			                          if (!window.$ || !item) return;
-			                          try { item.find('.settings-param__name').text(String(rule.pattern || '')); } catch (_) { }
-			                          try {
-			                            var $d = item.find('.settings-param__descr');
-			                            if (!$d.length) {
-			                              item.append('<div class="settings-param__descr"></div>');
-			                              $d = item.find('.settings-param__descr');
-			                            }
-			                            $d.text('type: ' + String(rule.type || 'simple'));
-			                          } catch (_) { }
-			                          var $st = ensureStatusDot(item);
-			                          setStatusDot($st, !!rule.enabled);
-
-			                          if (item.on) item.on('hover:enter', function () { openBlocklistUserRuleDetailScreen(String(rule.id), rowIndex, 0); });
-			                        } catch (_) { }
-			                      }
-			                    });
-			                  })(list[i], i);
-			                }
-			              } catch (_) { }
-			            }
-
-			            function openBlocklistUserRulesScreen(backIndexBlocklist, focusIndex) {
-			              try {
-			                uiRoute = 'blocklist_user';
-			                uiDetailMeta = null;
-			                uiUserRuleId = '';
-			                if (typeof backIndexBlocklist === 'number') uiBackBlocklistIndex = backIndexBlocklist;
-
-			                resetMainParams();
-			                buildBlocklistUserRulesScreen();
-
-			                if (!window.Lampa || !Lampa.Settings || !Lampa.Settings.create) return;
-			                var cp = {
-			                  onBack: function () { openBlocklistScreen(uiBackMainIndex, uiBackBlocklistIndex); },
-			                  __bl_ap_internal: true,
-			                  __bl_ap_route: 'blocklist_user'
-			                };
-			                if (typeof focusIndex === 'number' && focusIndex > 0) cp.last_index = focusIndex;
-			                Lampa.Settings.create(String(MAIN_COMPONENT), cp);
-			              } catch (_) { }
-			            }
-
-			            function buildBlocklistUserRuleDetailScreen(ruleId) {
-			              try {
-			                var api = getBlocklistApi();
-			                var list = [];
-			                try { list = (api && api.user && typeof api.user.getAll === 'function') ? api.user.getAll() : []; } catch (_) { list = []; }
-			                var rule = null;
-			                for (var i = 0; i < list.length; i++) {
-			                  try { if (String(list[i].id) === String(ruleId)) { rule = list[i]; break; } } catch (_) { }
-			                }
-
-			                if (!rule) {
-			                  var bad = 'Правило не найдено.';
-			                  Lampa.SettingsApi.addParam({
-			                    component: MAIN_COMPONENT,
-			                    param: { name: 'bl_blocklist_user_detail_bad', type: 'static', values: bad, default: bad },
-			                    field: { name: 'Пользовательские URL', description: bad }
-			                  });
-			                  return;
-			                }
-
-			                // Info (safe text)
-			                try {
-			                  Lampa.SettingsApi.addParam({
-			                    component: MAIN_COMPONENT,
-			                    param: { name: 'bl_blocklist_user_detail_info', type: 'static', default: true },
-			                    field: { name: 'Правило', description: '' },
-			                    onRender: function (item) {
-			                      try {
-			                        if (!window.$ || !item) return;
-			                        try { item.find('.settings-param__name').text(String(rule.pattern || '')); } catch (_) { }
-			                        var descr = 'type: ' + String(rule.type || 'simple');
-			                        try {
-			                          if (rule.type === 'advanced' && rule.advanced) {
-			                            if (rule.advanced.contentType) descr += '\ncontent-type: ' + String(rule.advanced.contentType);
-			                            if (rule.advanced.bodyMode) descr += '\nbody: ' + String(rule.advanced.bodyMode);
-			                          }
-			                        } catch (_) { }
-			                        try {
-			                          var $d = item.find('.settings-param__descr');
-			                          if (!$d.length) {
-			                            item.append('<div class="settings-param__descr"></div>');
-			                            $d = item.find('.settings-param__descr');
-			                          }
-			                          $d.text(descr);
-			                        } catch (_) { }
-			                        var $st = ensureStatusDot(item);
-			                        setStatusDot($st, !!rule.enabled);
-			                      } catch (_) { }
-			                    }
-			                  });
-			                } catch (_) { }
-
-			                // Toggle enable/disable
-			                try {
-			                  var toggleName = rule.enabled ? 'Выключить' : 'Включить';
-			                  Lampa.SettingsApi.addParam({
-			                    component: MAIN_COMPONENT,
-			                    param: { name: 'bl_blocklist_user_detail_toggle', type: 'button' },
-			                    field: { name: toggleName, description: 'Включает/выключает пользовательское правило.' },
-			                    onChange: function () {
-			                      try {
-			                        var api2 = getBlocklistApi();
-			                        if (api2 && api2.user && typeof api2.user.setEnabled === 'function') {
-			                          api2.user.setEnabled(String(rule.id), !rule.enabled);
-			                        }
-			                      } catch (_) { }
-			                      openBlocklistUserRuleDetailScreen(String(rule.id), uiBackUserRuleIndex, 0);
-			                    }
-			                  });
-			                } catch (_) { }
-
-			                // Delete
-			                try {
-			                  Lampa.SettingsApi.addParam({
-			                    component: MAIN_COMPONENT,
-			                    param: { name: 'bl_blocklist_user_detail_delete', type: 'button' },
-			                    field: { name: 'Удалить', description: 'Удаляет пользовательское правило.' },
-			                    onChange: function () {
-			                      confirmAction('Удалить правило', 'Удалить правило?\n\n' + String(rule.pattern || ''), function () {
-			                        try {
-			                          var api2 = getBlocklistApi();
-			                          if (api2 && api2.user && typeof api2.user.remove === 'function') api2.user.remove(String(rule.id));
-			                        } catch (_) { }
-			                        openBlocklistUserRulesScreen(uiBackBlocklistIndex, uiBackUserRuleIndex);
-			                      });
-			                    }
-			                  });
-			                } catch (_) { }
-			              } catch (_) { }
-			            }
-
-			            function openBlocklistUserRuleDetailScreen(ruleId, backIndexUserList, focusIndex) {
-			              try {
-			                uiRoute = 'blocklist_user_detail';
-			                uiDetailMeta = null;
-			                uiUserRuleId = String(ruleId || '');
-			                if (typeof backIndexUserList === 'number') uiBackUserRuleIndex = backIndexUserList;
-
-			                resetMainParams();
-			                buildBlocklistUserRuleDetailScreen(uiUserRuleId);
-
-			                if (!window.Lampa || !Lampa.Settings || !Lampa.Settings.create) return;
-			                var cp = {
-			                  onBack: function () { openBlocklistUserRulesScreen(uiBackBlocklistIndex, uiBackUserRuleIndex); },
-			                  __bl_ap_internal: true,
-			                  __bl_ap_route: 'blocklist_user_detail'
-			                };
-			                if (typeof focusIndex === 'number' && focusIndex > 0) cp.last_index = focusIndex;
-			                Lampa.Settings.create(String(MAIN_COMPONENT), cp);
-			              } catch (_) { }
-			            }
-
-			            function buildBlocklistAddScreen() {
-			              try {
-			                var api = getBlocklistApi();
-			                if (!api) {
-			                  var na = 'Network policy не доступна.';
-			                  Lampa.SettingsApi.addParam({
-			                    component: MAIN_COMPONENT,
-			                    param: { name: 'bl_blocklist_add_na', type: 'static', values: na, default: na },
-			                    field: { name: 'URL Blocklist', description: na }
-			                  });
-			                  return;
-			                }
-
-			                // URL / Pattern
-			                try {
-			                  Lampa.SettingsApi.addParam({
-			                    component: MAIN_COMPONENT,
-			                    param: { name: BL_RULE_ADD_PATTERN, type: 'input', values: '', default: '', placeholder: 'https://example.com/*' },
-			                    field: { name: 'URL / Pattern', description: 'Подстрока / wildcard (*) / /regex/i.' }
-			                  });
-			                } catch (_) { }
-
-			                // Type
-			                try {
-			                  Lampa.SettingsApi.addParam({
-			                    component: MAIN_COMPONENT,
-			                    param: {
-			                      name: BL_RULE_ADD_TYPE,
-			                      type: 'select',
-			                      values: { simple: 'Простое (simple)', advanced: 'Расширенное (advanced)' },
-			                      default: 'simple'
-			                    },
-			                    field: { name: 'Тип правила', description: '' },
-			                    onChange: function () {
-			                      // Rebuild to show/hide advanced fields.
-			                      openBlocklistAddScreen(uiBackBlocklistIndex, 2);
-			                    }
-			                  });
-			                } catch (_) { }
-
-			                var rt = 'simple';
-			                try {
-			                  rt = (window.Lampa && Lampa.Storage && Lampa.Storage.get) ? String(Lampa.Storage.get(BL_RULE_ADD_TYPE) || 'simple') : 'simple';
-			                } catch (_) { rt = 'simple'; }
-
-			                if (rt === 'advanced') {
-			                  // Content-Type
-			                  try {
-			                    Lampa.SettingsApi.addParam({
-			                      component: MAIN_COMPONENT,
-			                      param: {
-			                        name: BL_RULE_ADD_CT,
-			                        type: 'select',
-			                        values: {
-			                          'application/json': 'application/json',
-			                          'application/javascript': 'application/javascript',
-			                          'text/css': 'text/css',
-			                          'text/html': 'text/html',
-			                          'image/svg+xml': 'image/svg+xml',
-			                          'image/png': 'image/png',
-			                          'image/jpeg': 'image/jpeg',
-			                          'image/gif': 'image/gif',
-			                          'image/webp': 'image/webp',
-			                          'image/x-icon': 'image/x-icon',
-			                          'text/plain': 'text/plain'
-			                        },
-			                        default: 'application/json'
-			                      },
-			                      field: { name: 'Content-Type', description: '' }
-			                    });
-			                  } catch (_) { }
-
-			                  // Body mode
-			                  try {
-			                    Lampa.SettingsApi.addParam({
-			                      component: MAIN_COMPONENT,
-			                      param: { name: BL_RULE_ADD_BODY, type: 'select', values: { empty: 'empty', minimal: 'minimal' }, default: 'empty' },
-			                      field: { name: 'Body mode', description: '' }
-			                    });
-			                  } catch (_) { }
-			                }
-
-			                // Save
-			                try {
-			                  Lampa.SettingsApi.addParam({
-			                    component: MAIN_COMPONENT,
-			                    param: { name: 'bl_blocklist_add_save', type: 'button' },
-			                    field: { name: 'Сохранить', description: 'Добавляет правило и включает его.' },
-			                    onChange: function () {
-			                      try {
-			                        var pat = '';
-			                        try { pat = (window.Lampa && Lampa.Storage && Lampa.Storage.get) ? String(Lampa.Storage.get(BL_RULE_ADD_PATTERN) || '') : ''; } catch (_) { pat = ''; }
-			                        pat = String(pat || '').trim();
-			                        if (!pat) {
-			                          try { if (Lampa.Noty && Lampa.Noty.show) Lampa.Noty.show('[[BlackLampa]] Укажите URL / Pattern'); } catch (_) { }
-			                          return;
-			                        }
-
-			                        var type = 'simple';
-			                        try { type = (window.Lampa && Lampa.Storage && Lampa.Storage.get) ? String(Lampa.Storage.get(BL_RULE_ADD_TYPE) || 'simple') : 'simple'; } catch (_) { type = 'simple'; }
-			                        if (type !== 'advanced') type = 'simple';
-
-			                        var rule = { pattern: pat, type: type, enabled: true };
-			                        if (type === 'advanced') {
-			                          var ct = '';
-			                          var bm = '';
-			                          try { ct = (window.Lampa && Lampa.Storage && Lampa.Storage.get) ? String(Lampa.Storage.get(BL_RULE_ADD_CT) || '') : ''; } catch (_) { ct = ''; }
-			                          try { bm = (window.Lampa && Lampa.Storage && Lampa.Storage.get) ? String(Lampa.Storage.get(BL_RULE_ADD_BODY) || '') : ''; } catch (_) { bm = ''; }
-			                          rule.advanced = { contentType: ct, bodyMode: bm };
-			                        }
-
-			                        var api2 = getBlocklistApi();
-			                        if (api2 && api2.user && typeof api2.user.add === 'function') {
-			                          api2.user.add(rule);
-			                          try { if (Lampa.Noty && Lampa.Noty.show) Lampa.Noty.show('[[BlackLampa]] Правило добавлено'); } catch (_) { }
-			                          openBlocklistUserRulesScreen(1, 0);
-			                        } else {
-			                          try { if (Lampa.Noty && Lampa.Noty.show) Lampa.Noty.show('[[BlackLampa]] Network policy missing'); } catch (_) { }
-			                        }
-			                      } catch (_) { }
-			                    }
-			                  });
-			                } catch (_) { }
-			              } catch (_) { }
-			            }
-
-			            function openBlocklistAddScreen(backIndexBlocklist, focusIndex) {
-			              try {
-			                uiRoute = 'blocklist_add';
-			                uiDetailMeta = null;
-			                uiUserRuleId = '';
-			                uiBackUserRuleIndex = 0;
-			                if (typeof backIndexBlocklist === 'number') uiBackBlocklistIndex = backIndexBlocklist;
-
-			                resetMainParams();
-			                buildBlocklistAddScreen();
-
-			                if (!window.Lampa || !Lampa.Settings || !Lampa.Settings.create) return;
-			                var cp = {
-			                  onBack: function () { openBlocklistScreen(uiBackMainIndex, uiBackBlocklistIndex); },
-			                  __bl_ap_internal: true,
-			                  __bl_ap_route: 'blocklist_add'
-			                };
-			                if (typeof focusIndex === 'number' && focusIndex > 0) cp.last_index = focusIndex;
-			                Lampa.Settings.create(String(MAIN_COMPONENT), cp);
-			              } catch (_) { }
-			            }
-
-			            function buildMainScreen() {
-			              var idx = 0;
-
-			              // Main menu items (required order)
-		              // 1) Переинициализация
-		              try {
-		                Lampa.SettingsApi.addParam({
-		                  component: MAIN_COMPONENT,
-		                  param: { name: 'ap_reset', type: 'button' },
-		                  field: { name: 'Переинициализация', description: 'Сбрасывает флаги первой установки AutoPlugin. При следующем запуске снова пойдёт установка из массива.' },
-		                  onChange: function () {
-		                    // WHY: user explicitly requests AutoPlugin to run again on next start.
-		                    runOnce('Переинициализация', 'Сбросить флаги первой установки AutoPlugin?\n\nЭто НЕ удаляет плагины.', function () {
-		                      resetFirstInstallFlags();
-		                      try { if (Lampa.Noty && Lampa.Noty.show) Lampa.Noty.show('[[BlackLampa]] AutoPlugin: флаг сброшен'); } catch (_) { }
-		                      refreshInstallerSettingsUi();
-		                    });
-		                  }
-		                });
-		              } catch (_) { }
-		              idx++;
-
-		              // 2) Factory reset
-		              try {
-		                Lampa.SettingsApi.addParam({
-		                  component: MAIN_COMPONENT,
-		                  param: { name: 'ap_factory_reset', type: 'button' },
-		                  field: { name: 'Сброс Lampa до заводских', description: 'Полный сброс доменных данных (localStorage/sessionStorage/cookies/кеши) + повторная блокировка авторизации. Выполняет перезагрузку.' },
-		                  onChange: function () {
-		                    // WHY: factory reset must reset first-install flags to avoid "skip" after restart.
-		                    runOnce('Сброс Lampa до заводских', 'Сбросить Lampa до заводских?\n\nЭто удалит доменные данные и выполнит перезагрузку.\n\nВНИМАНИЕ: действие необратимо.', function () {
-		                      resetLampa();
-		                    });
-		                  }
-		                });
-		              } catch (_) { }
-		              idx++;
-
-		              // 3) Remove all plugins
-		              try {
-		                Lampa.SettingsApi.addParam({
-		                  component: MAIN_COMPONENT,
-		                  param: { name: 'bl_remove_all_plugins', type: 'button' },
-		                  field: { name: 'Удалить все плагины Lampa', description: 'Удаляет ВСЕ установленные плагины через Lampa.Storage (как в addon.js). Автоперезагрузка отключена.' },
-		                  onChange: function () {
-		                    // WHY: do NOT reset first-install flags here (avoid unexpected re-install on next start).
-		                    runOnce('Удалить все плагины Lampa', 'Удалить ВСЕ плагины Lampa?\n\nАвтоперезагрузка отключена. При необходимости перезапустите приложение вручную.', function () {
-		                      removeAllPluginsLampa();
-		                    });
-		                  }
-		                });
-		              } catch (_) { }
-		              idx++;
-
-		              // 4) Remove AutoPlugin Installer plugins (active list only)
-		              try {
-		                Lampa.SettingsApi.addParam({
-		                  component: MAIN_COMPONENT,
-		                  param: { name: 'bl_remove_autoplugin_plugins', type: 'button' },
-		                  field: { name: 'Удалить плагины AutoPlugin Installer', description: 'Удаляет только плагины из bl.autoplugin.json → plugins[]. disabled[] не трогает.' },
-		                  onChange: function () {
-		                    // WHY: do NOT reset first-install flags here (avoid unwanted re-install).
-		                    runOnce('Удалить плагины AutoPlugin Installer', 'Удалить плагины, которыми управляет AutoPlugin Installer?\n\nАвтоперезагрузка отключена. При необходимости перезапустите приложение вручную.', function () {
-		                      removeManagedPluginsLampa();
-		                    });
-		                  }
-		                });
-		              } catch (_) { }
-		              idx++;
-
-			              // 5) Extras submenu
-			              var extrasIndex = idx;
-			              try {
-			                Lampa.SettingsApi.addParam({
-		                  component: MAIN_COMPONENT,
-		                  param: { name: 'ap_extras', type: 'static', default: true },
-		                  field: { name: 'Дополнительные плагины', description: 'Открывает список disabled[] из bl.autoplugin.json.' },
-		                  onRender: function (item) {
-		                    try {
-		                      if (!item || !item.on) return;
-		                      item.on('hover:enter', function () {
-		                        openExtrasScreen(extrasIndex, 0);
-		                      });
-		                    } catch (_) { }
-		                  }
-		                });
-			              } catch (_) { }
-			              idx++;
-
-			              // 6) Log viewer (popup)
-			              try {
-			                Lampa.SettingsApi.addParam({
-			                  component: MAIN_COMPONENT,
-			                  param: { name: 'ap_log_viewer', type: 'static', default: true },
-			                  field: { name: 'Лог AutoPlugin Installer', description: 'Открывает popup-лог в режиме просмотра.' },
-			                  onRender: function (item) {
-			                    try {
-			                      if (!item || !item.on) return;
-			                      item.on('hover:enter', function () {
-			                        try {
-			                          if (window.BL && BL.Log && typeof BL.Log.openViewer === 'function') BL.Log.openViewer();
-			                          else if (window.BL && BL.Log && typeof BL.Log.ensurePopup === 'function') {
-			                            BL.Log.ensurePopup();
-			                            if (BL.Log && BL.Log.showInfo) BL.Log.showInfo('AutoPlugin', 'viewer', 'BL.Log.openViewer missing');
-			                          }
-			                        } catch (_) { }
-			                      });
-			                    } catch (_) { }
-			                  }
-			                });
-				              } catch (_) { }
-				              idx++;
-
-				              // 7) URL Blocklist
-				              var blocklistIndex = idx;
-				              try {
-				                Lampa.SettingsApi.addParam({
-				                  component: MAIN_COMPONENT,
-				                  param: { name: 'bl_url_blocklist', type: 'static', default: true },
-				                  field: { name: 'URL Blocklist', description: 'Управление сетевыми блокировками BlackLampa: встроенные правила + пользовательские URL.' },
-				                  onRender: function (item) {
-				                    try {
-				                      if (!item || !item.on) return;
-				                      item.on('hover:enter', function () {
-				                        openBlocklistScreen(blocklistIndex, 0);
-				                      });
-				                    } catch (_) { }
-				                  }
-				                });
-				              } catch (_) { }
-				              idx++;
-
-				              // X) Status (last, help + raw inside one item)
-				              try {
-				                Lampa.SettingsApi.addParam({
-				                  component: MAIN_COMPONENT,
-				                  param: { name: 'ap_status', type: 'static', values: '', default: '' },
-			                  field: { name: 'Статус', description: '' },
-			                  onRender: function (item) {
-			                    try {
-			                      if (!window.$ || !item) return;
-
-			                      var $d = item.find('.settings-param__descr');
-			                      if (!$d.length) {
-			                        item.append('<div class="settings-param__descr"></div>');
-			                        $d = item.find('.settings-param__descr');
-			                      }
-
-			                      var doneFlag = String(lsGet(AP_KEYS.done) || '') === '1';
-			                      var sigOk = String(lsGet(AP_KEYS.sig) || '') === calcPluginsSig();
-			                      var ts = toInt(lsGet(AP_KEYS.ts), 0);
-
-			                      var line1 = 'done=' + (doneFlag ? '1' : '0') + ' — ' + (doneFlag ? 'первичная автоустановка выполнена' : 'первичная автоустановка не выполнена') +
-			                        '; sig=' + (sigOk ? 'ok' : 'no') + ' — ' + (sigOk ? 'подпись списка совпадает' : 'подпись списка отличается');
-			                      var line2 = ts ? ('ts=' + new Date(ts).toLocaleString() + ' — время фиксации') : '';
-			                      var raw = getStatusInfoString();
-
-			                      $d.empty();
-			                      $d.append($('<div></div>').text(line1));
-			                      if (line2) $d.append($('<div></div>').text(line2));
-			                      $d.append($('<div></div>').text(raw));
-			                    } catch (_) { }
-			                  }
-			                });
-			              } catch (_) { }
-			              idx++;
-			            }
-
-		            // Seed main screen params (do NOT open Settings here).
-		            resetMainParams();
-		            buildMainScreen();
-
-		          } catch (_) { }
-		        }
+          } catch (_) { }
+        }
 
         // ============================================================================
         // global error hooks
@@ -1786,8 +733,28 @@
           });
         }
 
-        function ensureInstalledOne(urlOne) {
+        function injectNowPlugin(urlOne) {
+          return new Promise(function (resolveInjectNow) {
+            var urlAbs = absUrl(urlOne);
+
+            var br = isBlockedUrl(urlAbs);
+            if (br) {
+              logBlocked(urlAbs, 'inject', br);
+              resolveInjectNow({ ok: false, action: 'blocked', url: urlAbs, why: br });
+              return;
+            }
+
+            injectScript(urlAbs).then(function (r) {
+              if (r && r.ok) showOk('inject', 'ok', urlAbs);
+              else showError('inject', 'fail', urlAbs + ' | ' + (r && r.why ? r.why : 'error'));
+              resolveInjectNow({ ok: !!(r && r.ok), action: 'inject', url: urlAbs, why: r && r.why ? r.why : '' });
+            });
+          });
+        }
+
+        function ensureInstalledOne(urlOne, opts) {
           return new Promise(function (resolveOne) {
+            opts = opts || {};
             var urlAbs = absUrl(urlOne);
 
             var br = isBlockedUrl(urlAbs);
@@ -1834,7 +801,10 @@
 
 	            showOk('install', 'installed', urlAbs);
 
-            if (!INJECT_NEWLY_INSTALLED) {
+            var doInject = INJECT_NEWLY_INSTALLED;
+            try { if (opts && typeof opts === 'object' && typeof opts.inject === 'boolean') doInject = !!opts.inject; } catch (_) { doInject = INJECT_NEWLY_INSTALLED; }
+
+            if (!doInject) {
               resolveOne({ ok: true, action: 'installed', url: urlAbs, why: 'no-inject' });
               return;
             }
@@ -1905,7 +875,7 @@
               return;
             }
 
-            initInstallerSettings();
+            initInstallerUiBridge();
             safe(function () { if (BL.Log && BL.Log.hide) BL.Log.hide(); });
 
             if (isFirstInstallCompleted()) {

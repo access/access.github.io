@@ -90,6 +90,14 @@
   setDefault(apUi, 'extrasComponentId', 'bl_autoplugin_extras');
   setDefault(apUi, 'extraPluginComponentPrefix', 'bl_autoplugin_extras_plugin_');
 
+  // Plugins Installer Settings UI (separate from AutoPlugin business logic)
+  var pluginsInstaller = ensureObj(cfg, 'pluginsInstaller');
+  var piUi = ensureObj(pluginsInstaller, 'settings');
+  // By default keep the same componentId to avoid extra top-level settings пункты.
+  setDefault(piUi, 'componentId', apUi.componentId);
+  setDefault(piUi, 'name', 'Plugins Installer');
+  setDefault(piUi, 'icon', '<svg width="24" height="24" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M12 2a10 10 0 100 20 10 10 0 000-20zm1 14.5h-2v-2h2v2zm0-4h-2V6h2v6.5z" fill="currentColor"/></svg>');
+
   // Storage guards
   setDefault(storage, 'pluginsBlacklistKey', 'plugins_blacklist');
   setDefault(storage, 'pluginsBlacklistEmpty', '[]');

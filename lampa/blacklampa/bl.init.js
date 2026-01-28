@@ -156,6 +156,7 @@
       // PHASE 1 is user-gated. It must NEVER run before auth success.
       loadSeq([
         'bl.preload.js',
+        'bl.plugins.installer.js',
         'bl.autoplugin.js'
       ], function () {
         var p = Promise.resolve(true);
